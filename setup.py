@@ -97,15 +97,15 @@ def get_extensions():
 
     current_dir = pathlib.Path(__file__).parent.resolve()
     glm_path = os.path.join(current_dir, "gsplat", "cuda", "csrc", "third_party", "glm")
-    extension_v1 = CUDAExtension(
-        f"gsplat.csrc_legacy",
-        sources_v1,
-        include_dirs=[extensions_dir_v2, glm_path],  # glm lives in v2.
-        define_macros=define_macros,
-        undef_macros=undef_macros,
-        extra_compile_args=extra_compile_args,
-        extra_link_args=extra_link_args,
-    )
+    # extension_v1 = CUDAExtension(
+    #     f"gsplat.csrc_legacy",
+    #     sources_v1,
+    #     include_dirs=[extensions_dir_v2, glm_path],  # glm lives in v2.
+    #     define_macros=define_macros,
+    #     undef_macros=undef_macros,
+    #     extra_compile_args=extra_compile_args,
+    #     extra_link_args=extra_link_args,
+    # )
     extension_v2 = CUDAExtension(
         f"gsplat.csrc",
         sources_v2,
@@ -116,7 +116,7 @@ def get_extensions():
         extra_link_args=extra_link_args,
     )
 
-    return [extension_v1, extension_v2]
+    return [extension_v2]
 
 
 setup(

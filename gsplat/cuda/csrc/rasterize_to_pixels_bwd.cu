@@ -28,11 +28,11 @@ __global__ void rasterize_to_pixels_bwd_kernel(
     // fwd outputs
     const S *__restrict__ render_alphas,  // [C, image_height, image_width, 1]
     const int32_t *__restrict__ last_ids, // [C, image_height, image_width]
-    // grad outputs
+    // grad inputs
     const S *__restrict__ v_render_colors, // [C, image_height, image_width,
                                            // COLOR_DIM]
     const S *__restrict__ v_render_alphas, // [C, image_height, image_width, 1]
-    // grad inputs
+    // grad outputs
     vec2<S> *__restrict__ v_means2d_abs, // [C, N, 2] or [nnz, 2]
     vec2<S> *__restrict__ v_means2d,     // [C, N, 2] or [nnz, 2]
     vec3<S> *__restrict__ v_conics,      // [C, N, 3] or [nnz, 3]
@@ -95,6 +95,7 @@ __global__ void rasterize_to_pixels_bwd_kernel(
     S T_final = 1.0f - render_alphas[pix_id];
     S T = T_final;
     // the contribution from gaussians behind the current one
+    // 式子（18）
     S buffer[COLOR_DIM] = {0.f};
     // index of last gaussian to contribute to this pixel
     const int32_t bin_final = inside ? last_ids[pix_id] : 0;
@@ -121,6 +122,8 @@ __global__ void rasterize_to_pixels_bwd_kernel(
         // index of gaussian to load
         // batch end is the index of the last gaussian in the batch
         // These values can be negative so must be int32 instead of uint32
+        // batch_end指向这个batch的最后一个gaussian
+        // 这里在准备gaussians参数的时候已经倒序，因为idx = batch_end - tr
         const int32_t batch_end = range_end - 1 - block_size * b;
         const int32_t batch_size = min(block_size, batch_end + 1 - range_start);
         const int32_t idx = batch_end - tr;
@@ -140,6 +143,7 @@ __global__ void rasterize_to_pixels_bwd_kernel(
         block.sync();
         // process gaussians in the current batch for this pixel
         // 0 index is the furthest back gaussian in the batch
+        // 在b=0时，t=batch_end - warp_bin_final
         for (uint32_t t = max(0, batch_end - warp_bin_final); t < batch_size; ++t) {
             bool valid = inside;
             if (batch_end - t > bin_final) {
@@ -184,15 +188,18 @@ __global__ void rasterize_to_pixels_bwd_kernel(
                 const S fac = alpha * T;
                 PRAGMA_UNROLL
                 for (uint32_t k = 0; k < COLOR_DIM; ++k) {
+                    // 式子（16）
                     v_rgb_local[k] = fac * v_render_c[k];
                 }
                 // contribution from this pixel
                 S v_alpha = 0.f;
                 for (uint32_t k = 0; k < COLOR_DIM; ++k) {
+                    // 式子（18）
                     v_alpha += (rgbs_batch[t * COLOR_DIM + k] * T - buffer[k] * ra) *
                                v_render_c[k];
                 }
 
+                // 这两部分文档中未给出式子
                 v_alpha += T_final * ra * v_render_a;
                 // contribution from background pixel
                 if (backgrounds != nullptr) {

@@ -290,6 +290,7 @@ def rasterization(
                 pass
     else:
         # Colors are SH coefficients, with shape [N, K, 3] or [C, N, K, 3]
+        # gaussian的世界坐标减去相机的世界坐标，获得gaussian的方向向量
         camtoworlds = torch.inverse(viewmats)  # [C, 4, 4]
         if packed:
             dirs = means[gaussian_ids, :] - camtoworlds[camera_ids, :3, 3]  # [nnz, 3]
@@ -312,6 +313,7 @@ def rasterization(
                 shs = colors
             colors = spherical_harmonics(sh_degree, dirs, shs, masks=masks)  # [C, N, 3]
         # make it apple-to-apple with Inria's CUDA Backend.
+        # 为什么加0.5？
         colors = torch.clamp_min(colors + 0.5, 0.0)
 
     # Rasterize to pixels

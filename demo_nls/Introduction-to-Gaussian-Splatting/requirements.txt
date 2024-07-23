@@ -1,0 +1,5 @@
+gsplat
+numpy
+Pillow
+Ninja
+matplotlib

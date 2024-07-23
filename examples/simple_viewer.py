@@ -26,9 +26,12 @@ parser.add_argument(
     "--output_dir", type=str, default="results/", help="where to dump outputs"
 )
 parser.add_argument(
+    "--is_crop", type=bool, default=False, help="determine if crop gaussians"
+)
+parser.add_argument(
     "--scene_grid", type=int, default=1, help="repeat the scene into a grid of NxN"
 )
-parser.add_argument("--ckpt", type=str, default=None, help="path to the .pt file")
+parser.add_argument("--ckpt", type=str, default=r'/home/cvgluser/Desktop/pyProjects/NeRF-3DGS/gsplat/examples/results/pinecone/ckpts/ckpt_29999.pt', help="path to the .pt file")
 parser.add_argument("--port", type=int, default=8080, help="port for the viewer server")
 parser.add_argument(
     "--backend", type=str, default="gsplat", help="gsplat, gsplat_legacy, inria"
@@ -103,17 +106,21 @@ else:
     sh_degree = int(math.sqrt(colors.shape[-2]) - 1)
 
     # crop
-    aabb = torch.tensor((-1.0, -1.0, -1.0, 1.0, 1.0, 0.7), device=device)
-    edges = aabb[3:] - aabb[:3]
-    sel = ((means >= aabb[:3]) & (means <= aabb[3:])).all(dim=-1)
-    sel = torch.where(sel)[0]
-    means, quats, scales, colors, opacities = (
-        means[sel],
-        quats[sel],
-        scales[sel],
-        colors[sel],
-        opacities[sel],
-    )
+    if args.is_crop:
+        aabb = torch.tensor((-1.0, -1.0, -1.0, 1.0, 1.0, 0.7), device=device)
+        edges = aabb[3:] - aabb[:3]
+        sel = ((means >= aabb[:3]) & (means <= aabb[3:])).all(dim=-1)
+        sel = torch.where(sel)[0]
+        means, quats, scales, colors, opacities = (
+            means[sel],
+            quats[sel],
+            scales[sel],
+            colors[sel],
+            opacities[sel],
+        )
+
+    else:
+        edges = torch.tensor([1.0, 1.0, 1.0], device=device)  # 使用适当的边界尺寸
 
     # repeat the scene into a grid (to mimic a large-scale setting)
     repeats = args.scene_grid
@@ -170,7 +177,7 @@ def viewer_render_fn(camera_state: nerfview.CameraState, img_wh: Tuple[int, int]
         sh_degree=sh_degree,
         render_mode="RGB",
         # this is to speedup large-scale rendering by skipping far-away Gaussians.
-        radius_clip=3,
+        radius_clip=1,
     )
     render_rgbs = render_colors[0, ..., 0:3].cpu().numpy()
     return render_rgbs

@@ -36,7 +36,10 @@ __global__ void isect_tiles(
     using OpT = typename OpType<T>::type;
     
     // parallelize over C * N.
+    // 线程块数量：((C*N or nnz)-1)/N_THREADS + 1
+    // 每个线程块的线程数量：N_THREADS
     uint32_t idx = cg::this_grid().thread_rank();
+    // 区分是否为第一次进入函数
     bool first_pass = cum_tiles_per_gauss == nullptr;
     if (idx >= (packed ? nnz : C * N)) {
         return;
@@ -52,11 +55,13 @@ __global__ void isect_tiles(
 
     vec2<OpT> mean2d = glm::make_vec2(means2d + 2*idx);
 
+    // 计算在网格下gaussian的坐标和半径
     OpT tile_radius = radius / static_cast<OpT>(tile_size);
     OpT tile_x = mean2d.x / static_cast<OpT>(tile_size);
     OpT tile_y = mean2d.y / static_cast<OpT>(tile_size);
 
     // tile_min is inclusive, tile_max is exclusive
+    // 计算在网格下gaussian的最值坐标且限幅在最大数量内
     uint2 tile_min, tile_max;
     tile_min.x = min(max(0, (uint32_t)floor(tile_x - tile_radius)), tile_width);
     tile_min.y = min(max(0, (uint32_t)floor(tile_y - tile_radius)), tile_height);
@@ -65,6 +70,7 @@ __global__ void isect_tiles(
 
     if (first_pass) {
         // first pass only writes out tiles_per_gauss
+        // 记录这个gaussian覆盖的网格数量
         tiles_per_gauss[idx] =
             static_cast<int32_t>((tile_max.y - tile_min.y) * (tile_max.x - tile_min.x));
         return;
@@ -80,17 +86,24 @@ __global__ void isect_tiles(
         cid = idx / N;
         // gid = idx % N;
     }
+    // 创建相机编码id
     const int64_t cid_enc = cid << (32 + tile_n_bits);
-
+    // 转换depth为int64_t
     int64_t depth_id_enc = (int64_t) * (int32_t *)&(depths[idx]);
+    // 若cum_tiles_per_gauss = [5, 8, 16, 18, 25, 26, 30, 36, 45]，则第4个gaussian覆盖的tiles数量为2，之前所有gaussian覆盖的tiles数量为16
     int64_t cur_idx = (idx == 0) ? 0 : cum_tiles_per_gauss[idx - 1];
+   // 譬如，有2张图片，每张图4个tile，n_tiles = 8,isect_ids=[0|0|2, 0|1|2, 0|1|2, 1|0|2, 1|0|2, 1|0|2, 1|1|2, 1|1|2, 1|1|2, 1|2|2],n_isects=10，
     for (int32_t i = tile_min.y; i < tile_max.y; ++i) {
         for (int32_t j = tile_min.x; j < tile_max.x; ++j) {
+            // 计算当前tile在一张图片中的索引
             int64_t tile_id = i * tile_width + j;
             // e.g. tile_n_bits = 22:
             // camera id (10 bits) | tile id (22 bits) | depth (32 bits)
+            // 指定索引进行标注，标识信息为camera id + tile id + depth
+            // 这样的话，isect_ids就有n_isects个值，表示有n_isects个重叠的tiles，每个tile记录了自己的全局位置信息和对应的gaussian的深度信息
             isect_ids[cur_idx] = cid_enc | (tile_id << 32) | depth_id_enc;
             // the flatten index in [C * N] or [nnz]
+            // 标注这个tile对应哪个gaussian
             flatten_ids[cur_idx] = static_cast<int32_t>(idx);
             ++cur_idx;
         }
@@ -140,6 +153,7 @@ isect_tiles_tensor(const torch::Tensor &means2d, // [C, N, 2] or [nnz, 2]
     // Note: std::bit_width requires C++20
     // uint32_t tile_n_bits = std::bit_width(n_tiles);
     // uint32_t cam_n_bits = std::bit_width(C);
+    // 获得数据所占比特的位数
     uint32_t tile_n_bits = (uint32_t)floor(log2(n_tiles)) + 1;
     uint32_t cam_n_bits = (uint32_t)floor(log2(C)) + 1;
     // the first 32 bits are used for the camera id and tile id altogether, so
@@ -154,6 +168,7 @@ isect_tiles_tensor(const torch::Tensor &means2d, // [C, N, 2] or [nnz, 2]
     torch::Tensor cum_tiles_per_gauss;
     if (total_elems) {
         AT_DISPATCH_FLOATING_TYPES_AND2(at::ScalarType::Half, at::ScalarType::BFloat16, means2d.scalar_type(), "isect_tiles_total_elems", [&]() {
+            // 分配C * N或者nnz个线程
             isect_tiles<<<(total_elems + N_THREADS - 1) / N_THREADS, N_THREADS, 0,
                         stream>>>(
                 packed, C, N, nnz, camera_ids_ptr, gaussian_ids_ptr,
@@ -162,6 +177,9 @@ isect_tiles_tensor(const torch::Tensor &means2d, // [C, N, 2] or [nnz, 2]
                 tile_width, tile_height, tile_n_bits, tiles_per_gauss.data_ptr<int32_t>(),
                 nullptr, nullptr);
         });
+        // Cumulative tiles per gaussian,每个gaussian覆盖的网格数量
+        // 若cum_tiles_per_gauss = [5, 8, 16, 18, 25, 26, 30, 36, 45]，则第4个gaussian覆盖的tiles数量为2，之前所有gaussian覆盖的tiles数量为16
+        // shape:(C*N,)
         cum_tiles_per_gauss = torch::cumsum(tiles_per_gauss.view({-1}), 0);
         n_isects = cum_tiles_per_gauss[-1].item<int64_t>();
     } else {
@@ -241,6 +259,10 @@ __global__ void isect_offset_encode(const uint32_t n_isects,
     // counts: [0, 3, 0, 2, 0, 0]
     // cumsum: [0, 3, 3, 5, 5, 5]
     // offsets: [0, 0, 3, 3, 5, 5]
+
+    // isect_ids的长度是n_isects，表示一共有n_isects个重叠的tile，而isect_ids[idx] >> 32表明了这个tile在哪一张图片的哪个位置
+    // 线程块数量：(n_isects + N_THREADS - 1) / N_THREADS
+    // 每个线程块的线程数量：N_THREADS
     uint32_t idx = cg::this_grid().thread_rank();
     if (idx >= n_isects)
         return;
@@ -250,6 +272,11 @@ __global__ void isect_offset_encode(const uint32_t n_isects,
     int64_t tid_curr = isect_id_curr & ((1 << tile_n_bits) - 1);
     int64_t id_curr = cid_curr * n_tiles + tid_curr;
 
+    // 以下三个if语句，依靠offsets这个变量，建立了n_isects个tile，与tiles的全局索引号的一一对应关系
+    // 譬如，有2张图片，每张图4个tile，n_tiles = 8,isect_ids=[0|0, 0|1, 0|1, 1|0, 1|0, 1|0, 1|1, 1|1, 1|1, 1|2],n_isects=10，
+    // isect_ids是经过排序的，相机id与tile_id在前32位，深度值在后32位，所以isect_ids是从小到大
+    // 那么，offsets=[0,1,3,3,3,6,9,9]
+    // 有了offsets，如果我想知道第7个tile对应哪个gaussian，我只需要这样表示：flatten_ids[offsets[6]]
     if (idx == 0) {
         // write out the offsets until the first valid tile (inclusive)
         for (uint32_t i = 0; i < id_curr + 1; ++i)
@@ -290,6 +317,7 @@ torch::Tensor isect_offset_encode_tensor(const torch::Tensor &isect_ids, // [n_i
         uint32_t n_tiles = tile_width * tile_height;
         uint32_t tile_n_bits = (uint32_t)floor(log2(n_tiles)) + 1;
         at::cuda::CUDAStream stream = at::cuda::getCurrentCUDAStream();
+        // 分配n_isects个线程
         isect_offset_encode<<<(n_isects + N_THREADS - 1) / N_THREADS, N_THREADS, 0,
                               stream>>>(n_isects, isect_ids.data_ptr<int64_t>(), C,
                                         n_tiles, tile_n_bits,

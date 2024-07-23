@@ -218,6 +218,8 @@ def fully_fused_projection(
         - **conics**. Inverse of the projected covariances. Return the flattend upper triangle with [C, N, 3]
         - **compensations**. The view-dependent opacity compensation factor. [C, N]
     """
+
+    # judge the shape and convert the tensor to contiguous tensor so cuda could use pointers to change values
     C = viewmats.size(0)
     N = means.size(0)
     assert means.size() == (N, 3), means.size()
@@ -634,6 +636,8 @@ class _PerspProj(torch.autograd.Function):
         means2d, covars2d = _make_lazy_cuda_func("persp_proj_fwd")(
             means, covars, Ks, width, height
         )
+
+        # 存放一下，backward用
         ctx.save_for_backward(means, covars, Ks)
         ctx.width = width
         ctx.height = height
@@ -641,6 +645,7 @@ class _PerspProj(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, v_means2d: Tensor, v_covars2d: Tensor):
+        # 获得存放的值
         means, covars, Ks = ctx.saved_tensors
         width = ctx.width
         height = ctx.height

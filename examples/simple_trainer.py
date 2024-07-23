@@ -32,12 +32,12 @@ class Config:
     # Path to the .pt file. If provide, it will skip training and render a video
     ckpt: Optional[str] = None
 
-    # Path to the Mip-NeRF 360 dataset
-    data_dir: str = "data/360_v2/garden"
+    # Path to dataset
+    data_dir: str = r"/home/cvgluser/Downloads/dataset/nerf_real_360/pinecone"
     # Downsample factor for the dataset
-    data_factor: int = 4
+    data_factor: int = 4  # 4
     # Directory to save results
-    result_dir: str = "results/garden"
+    result_dir: str = r"/home/cvgluser/Desktop/pyProjects/NeRF-3DGS/gsplat/examples/results/pinecone"
     # Every N images there is a test image
     test_every: int = 8
     # Random crop size for training  (experimental)
@@ -178,10 +178,15 @@ def create_splats_with_optimizers(
 
     N = points.shape[0]
     # Initialize the GS size to be the average dist of the 3 nearest neighbors
+    # 通过scikit库的knn近邻算法选出距离自己最近的三个点并平方，在最后一个维度取平均 [N,3]->[N,]
     dist2_avg = (knn(points, 4)[:, 1:] ** 2).mean(dim=-1)  # [N,]
     dist_avg = torch.sqrt(dist2_avg)
+    # 基于近邻距离取对数值初始化，并复制成3个相同的值
     scales = torch.log(dist_avg * init_scale).unsqueeze(-1).repeat(1, 3)  # [N, 3]
+    # 生成随机四元数
     quats = torch.rand((N, 4))  # [N, 4]
+
+    # 用logit函数初始化不透明度
     opacities = torch.logit(torch.full((N,), init_opacity))  # [N,]
 
     params = [
@@ -199,6 +204,7 @@ def create_splats_with_optimizers(
         params.append(("sh0", torch.nn.Parameter(colors[:, :1, :]), 2.5e-3))
         params.append(("shN", torch.nn.Parameter(colors[:, 1:, :]), 2.5e-3 / 20))
     else:
+        # 使用特征向量来进行外观和视角相关的着色。
         # features will be used for appearance and view-dependent shading
         features = torch.rand(N, feature_dim)  # [N, feature_dim]
         params.append(("features", torch.nn.Parameter(features), 2.5e-3))
@@ -375,6 +381,8 @@ class Runner:
             )
             colors = colors + self.splats["colors"]
             colors = torch.sigmoid(colors)
+
+        # 把球谐函数的参数叠起来
         else:
             colors = torch.cat([self.splats["sh0"], self.splats["shN"]], 1)  # [N, K, 3]
 

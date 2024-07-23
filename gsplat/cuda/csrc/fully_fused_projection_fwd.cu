@@ -33,11 +33,16 @@ fully_fused_projection_fwd_kernel(const uint32_t C, const uint32_t N,
                                   T *__restrict__ conics,       // [C, N, 3]
                                   T *__restrict__ compensations // [C, N] optional
 ) {
+
     // parallelize over C * N.
+    // 获得全局索引
     uint32_t idx = cg::this_grid().thread_rank();
     if (idx >= C * N) {
         return;
     }
+    // 如有2张图，每张图4个gaussian，共8个线程，线程id号0~7
+    // 假设当前线程号为3，那么对应的cid为0，gid为3
+    // 获得当前的相机索引
     const uint32_t cid = idx / N; // camera id
     const uint32_t gid = idx % N; // gaussian id
 
@@ -85,8 +90,11 @@ fully_fused_projection_fwd_kernel(const uint32_t C, const uint32_t N,
     persp_proj<T>(mean_c, covar_c, Ks[0], Ks[4], Ks[2], Ks[5], image_width,
                   image_height, covar2d, mean2d);
 
+    // 在covar2d的对角线上添加eps2d，返回添加后的行列式
+    // compensation定义为，添加前的det除以添加后的det，若出现负数，则返回0
     T compensation;
     T det = add_blur(eps2d, covar2d, compensation);
+    // 检验正定性
     if (det <= 0.f) {
         radii[idx] = 0;
         return;
@@ -99,6 +107,7 @@ fully_fused_projection_fwd_kernel(const uint32_t C, const uint32_t N,
     // take 3 sigma as the radius (non differentiable)
     T b = 0.5f * (covar2d[0][0] + covar2d[1][1]);
     T v1 = b + sqrt(max(0.01f, b * b - det));
+    // 此时覆盖的概率密度的积分大于0.997，可以认为包含了所有有效的分布
     T radius = ceil(3.f * sqrt(v1));
     // T v2 = b - sqrt(max(0.1f, b * b - det));
     // T radius = ceil(3.f * sqrt(max(v1, v2)));
@@ -120,6 +129,7 @@ fully_fused_projection_fwd_kernel(const uint32_t C, const uint32_t N,
     means2d[idx * 2] = mean2d.x;
     means2d[idx * 2 + 1] = mean2d.y;
     depths[idx] = mean_c.z;
+    // 取协方差的逆作conics
     conics[idx * 3] = covar2d_inv[0][0];
     conics[idx * 3 + 1] = covar2d_inv[0][1];
     conics[idx * 3 + 2] = covar2d_inv[1][1];

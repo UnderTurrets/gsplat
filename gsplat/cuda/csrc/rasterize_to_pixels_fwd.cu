@@ -32,11 +32,17 @@ __global__ void rasterize_to_pixels_fwd_kernel(
     // shared tile
 
     auto block = cg::this_thread_block();
+    // block.group_index().y表示当前的tile在这张图片上的第几行tile，block.group_index().z表示当前的tile在这张图片上的第几列tile
+    // 知道我现在处理的是哪一张图片
     int32_t camera_id = block.group_index().x;
+    // 知道我现在处理的是这张图片中的哪个tile
     int32_t tile_id = block.group_index().y * tile_width + block.group_index().z;
+    // block.thread_index().x和block.thread_index().y表示当前线程处理的pixel在tile中的坐标
+    // i、j表示当前线程处理的pixel在图片中的坐标
     uint32_t i = block.group_index().y * tile_size + block.thread_index().y;
     uint32_t j = block.group_index().z * tile_size + block.thread_index().x;
 
+    // 偏移指针到当前图片
     tile_offsets += camera_id * tile_height * tile_width;
     render_colors += camera_id * image_height * image_width * COLOR_DIM;
     render_alphas += camera_id * image_height * image_width;
@@ -48,8 +54,10 @@ __global__ void rasterize_to_pixels_fwd_kernel(
         masks += camera_id * tile_height * tile_width;
     }
 
+    // 当前像素中心位置并进行边界检查
     S px = (S)j + 0.5f;
     S py = (S)i + 0.5f;
+    // 获得这个像素在这张图片中的索引
     int32_t pix_id = i * image_width + j;
 
     // return if out of bounds
@@ -69,6 +77,7 @@ __global__ void rasterize_to_pixels_fwd_kernel(
     // have all threads in tile process the same gaussians in batches
     // first collect gaussians between range.x and range.y in batches
     // which gaussians to look through in this tile
+    // 当前 tile 对应的gaussian数量可能很多，需要分成多个批次，每个批次的数量不能超过当前线程数，即block_size。
     int32_t range_start = tile_offsets[tile_id];
     int32_t range_end =
         (camera_id == C - 1) && (tile_id == tile_width * tile_height - 1)
@@ -107,9 +116,13 @@ __global__ void rasterize_to_pixels_fwd_kernel(
 
         // each thread fetch 1 gaussian from front to back
         // index of gaussian to load
+        // range_start指向第一批gaussians的第一个gaussian，通过offsets索引得到
+        // batch_start指向这一批的gaussians中的第一个gaussian
         uint32_t batch_start = range_start + block_size * b;
         uint32_t idx = batch_start + tr;
+        // 准备好这个batch的gaussian各项参数
         if (idx < range_end) {
+            // flatten_ids有n_isects个值，每个值表示一个gaussian在C * N或nnz个gaussian中的索引
             int32_t g = flatten_ids[idx]; // flatten index in [C * N] or [nnz]
             id_batch[tr] = g;
             const vec2<S> xy = means2d[g];
@@ -122,12 +135,15 @@ __global__ void rasterize_to_pixels_fwd_kernel(
         block.sync();
 
         // process gaussians in the current batch for this pixel
+        // 当前线程遍历这个batch的gaussians，直到done
         uint32_t batch_size = min(block_size, range_end - batch_start);
         for (uint32_t t = 0; (t < batch_size) && !done; ++t) {
             const vec3<S> conic = conic_batch[t];
             const vec3<S> xy_opac = xy_opacity_batch[t];
             const S opac = xy_opac.z;
+            // 高斯函数的(x-miu)
             const vec2<S> delta = {xy_opac.x - px, xy_opac.y - py};
+            // 高斯函数的指数项
             const S sigma =
                 0.5f * (conic.x * delta.x * delta.x + conic.z * delta.y * delta.y) +
                 conic.y * delta.x * delta.y;
@@ -168,6 +184,7 @@ __global__ void rasterize_to_pixels_fwd_kernel(
                 backgrounds == nullptr ? pix_out[k] : (pix_out[k] + T * backgrounds[k]);
         }
         // index in bin of last gaussian in this pixel
+        // 记录最后一个影响该像素的高斯分布的索引
         last_ids[pix_id] = static_cast<int32_t>(cur_idx);
     }
 }

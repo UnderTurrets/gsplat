@@ -79,14 +79,17 @@ class Parser:
 
             # Get distortion parameters.
             type_ = cam.camera_type
-            if type_ == 0 or type_ == "SIMPLE_PINHOLE":
+            if type_ == 2 or type_ == "SIMPLE_RADIAL":
+                fx = (cam.fx + cam.fy) / 2
+                fy = fx
+                K = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
+                params = np.empty(0, dtype=np.float32)
+                camtype = "perspective"
+            elif type_ == 0 or type_ == "SIMPLE_PINHOLE":
                 params = np.empty(0, dtype=np.float32)
                 camtype = "perspective"
             elif type_ == 1 or type_ == "PINHOLE":
                 params = np.empty(0, dtype=np.float32)
-                camtype = "perspective"
-            if type_ == 2 or type_ == "SIMPLE_RADIAL":
-                params = np.array([cam.k1], dtype=np.float32)
                 camtype = "perspective"
             elif type_ == 3 or type_ == "RADIAL":
                 params = np.array([cam.k1, cam.k2, 0.0, 0.0], dtype=np.float32)

@@ -89,6 +89,8 @@ world_to_cam_fwd_tensor(const torch::Tensor &means,   // [N, 3]
     torch::Tensor covars_c = torch::empty({C, N, 3, 3}, means.options());
 
     if (C && N) {
+        // (C * N + N_THREADS - 1) ： 线程总数
+        // (C * N + N_THREADS - 1) / N_THREADS ： 计算所需内存块，且保证每个线程都能覆盖
         at::cuda::CUDAStream stream = at::cuda::getCurrentCUDAStream();
         AT_DISPATCH_FLOATING_TYPES_AND2(
             at::ScalarType::Half, at::ScalarType::BFloat16, means.scalar_type(),
