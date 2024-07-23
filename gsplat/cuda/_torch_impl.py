@@ -310,7 +310,7 @@ def accumulate(
     image_width: int,
     image_height: int,
 ) -> Tuple[Tensor, Tensor]:
-    """Alpah compositing of 2D Gaussians in Pure Pytorch.
+    """Alpha compositing of 2D Gaussians in Pure Pytorch.
 
     This function performs alpha compositing for Gaussians based on the pair of indices
     {gaussian_ids, pixel_ids, camera_ids}, which annotates the intersection between all

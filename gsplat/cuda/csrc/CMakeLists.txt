@@ -20,19 +20,18 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
 set(CMAKE_PREFIX_PATH /home/cvgluser/Downloads/libtorch-cxx11-abi-shared-with-deps-2.3.1+cu118/libtorch;
 )
 
+file(GLOB source
+        "*.cu"
+        "*.cuh"
+        "*.cpp"
+        )
+
+
 find_package(Torch REQUIRED)
-add_library(${PROJECT_NAME}
-        helpers.cuh
-        projection.cu
-        rasterization.cu
-        sh.cu
-        utils.cuh
-        ext.cpp
-        bindings.h
+add_library(${PROJECT_NAME} SHARED
+        ${source}
 )
+set_target_properties(${PROJECT_NAME} PROPERTIES CUDA_ARCHITECTURES "70;75;86")
 target_include_directories(${PROJECT_NAME} PUBLIC /usr/include/python3.8)
 target_include_directories(${PROJECT_NAME} PUBLIC ${PROJECT_SOURCE_DIR}/third_party/glm ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
-
-set_target_properties(${PROJECT_NAME} PROPERTIES CUDA_ARCHITECTURES "70;75;86")
 target_link_libraries(${PROJECT_NAME} ${TORCH_LIBRARIES})
-target_link_libraries(${PROJECT_NAME} ${PROJECT_SOURCE_DIR}/third_party/glm/bulid/glm/libglm.a)

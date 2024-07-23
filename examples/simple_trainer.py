@@ -37,7 +37,7 @@ class Config:
     # Downsample factor for the dataset
     data_factor: int = 4  # 4
     # Directory to save results
-    result_dir: str = r"/home/cvgluser/Desktop/pyProjects/NeRF-3DGS/gsplat/examples/results/pinecone"
+    result_dir: str = r"/home/cvgluser/Desktop/pyProjects/gsplat/examples/results/pinecone"
     # Every N images there is a test image
     test_every: int = 8
     # Random crop size for training  (experimental)

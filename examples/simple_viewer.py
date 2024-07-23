@@ -31,7 +31,7 @@ parser.add_argument(
 parser.add_argument(
     "--scene_grid", type=int, default=1, help="repeat the scene into a grid of NxN"
 )
-parser.add_argument("--ckpt", type=str, default=r'/home/cvgluser/Desktop/pyProjects/NeRF-3DGS/gsplat/examples/results/pinecone/ckpts/ckpt_29999.pt', help="path to the .pt file")
+parser.add_argument("--ckpt", type=str, default=r'/home/cvgluser/Desktop/pyProjects/gsplat/examples/results/pinecone/ckpts/ckpt_29999.pt', help="path to the .pt file")
 parser.add_argument("--port", type=int, default=8080, help="port for the viewer server")
 parser.add_argument(
     "--backend", type=str, default="gsplat", help="gsplat, gsplat_legacy, inria"
@@ -96,7 +96,7 @@ if args.ckpt is None:
     imageio.imsave(f"{args.output_dir}/render.png", (canvas * 255).astype(np.uint8))
 else:
     ckpt = torch.load(args.ckpt, map_location=device)["splats"]
-    means = ckpt["means"]
+    means = ckpt["means3d"]
     quats = F.normalize(ckpt["quats"], p=2, dim=-1)
     scales = torch.exp(ckpt["scales"])
     opacities = torch.sigmoid(ckpt["opacities"])
