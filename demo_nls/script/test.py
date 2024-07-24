@@ -1,7 +1,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Ellipse
-
+import torch
+print(torch.utils.cmake_prefix_path)
+print(torch.cuda.is_available())
 def plot_gaussian(mu, cov, ax, color='blue'):
     """
     绘制二维高斯分布的等高线

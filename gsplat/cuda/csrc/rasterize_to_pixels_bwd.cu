@@ -211,6 +211,8 @@ __global__ void rasterize_to_pixels_bwd_kernel(
                     v_alpha += -T_final * ra * accum;
                 }
 
+
+                
                 if (opac * vis <= 0.999f) {
                     const S v_sigma = -opac * vis * v_alpha;
                     v_conic_local = {0.5f * v_sigma * delta.x * delta.x,

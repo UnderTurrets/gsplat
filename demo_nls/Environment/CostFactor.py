@@ -349,7 +349,3 @@ if __name__ == '__main__':
     # jacobian_numerical = cost_factor.jacobian()
     # print(np.linalg.norm(jacobian_analytical - jacobian_numerical))
 
-    # array1 = np.array([[1, 2, 3, 4],
-    #                    [5, 6, 7, 8]])
-    # print(array1.reshape(-1,2))
-    # print(array1.T)

@@ -261,9 +261,6 @@ from Environment.CostFactor import CostFactor_Env1, CostFactor_Env2, CostFactor_
 
 # 主函数，测试NLS和GD求解器
 if __name__ == "__main__":
-    import torch
-    print(torch.utils.cmake_prefix_path)
-    print(torch.cuda.is_available())
     import sysconfig
     print(sysconfig.get_paths()['include'])
 
