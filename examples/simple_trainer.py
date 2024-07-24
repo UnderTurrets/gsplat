@@ -21,7 +21,7 @@ from torchmetrics.image import PeakSignalNoiseRatio, StructuralSimilarityIndexMe
 from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
 from utils import AppearanceOptModule, CameraOptModule, knn, rgb_to_sh, set_random_seed
 
-from gsplat.rendering import rasterization
+from gsplat.rendering import rasterization,_rasterization
 from gsplat.strategy import DefaultStrategy
 
 
@@ -387,6 +387,7 @@ class Runner:
             colors = torch.cat([self.splats["sh0"], self.splats["shN"]], 1)  # [N, K, 3]
 
         rasterize_mode = "antialiased" if self.cfg.antialiased else "classic"
+        # cuda complementation
         render_colors, render_alphas, info = rasterization(
             means=means,
             quats=quats,
@@ -403,6 +404,20 @@ class Runner:
             rasterize_mode=rasterize_mode,
             **kwargs,
         )
+        # torch complementation
+        # render_colors, render_alphas, info = _rasterization(
+        #     means=means,
+        #     quats=quats,
+        #     scales=scales,
+        #     opacities=opacities,
+        #     colors=colors,
+        #     viewmats=torch.linalg.inv(camtoworlds),  # [C, 4, 4]
+        #     Ks=Ks,  # [C, 3, 3]
+        #     width=width,
+        #     height=height,
+        #     rasterize_mode=rasterize_mode,
+        #     **kwargs,
+        # )
         return render_colors, render_alphas, info
 
     def train(self):
@@ -484,6 +499,7 @@ class Runner:
                 Ks=Ks,
                 width=width,
                 height=height,
+                # kargs
                 sh_degree=sh_degree_to_use,
                 near_plane=cfg.near_plane,
                 far_plane=cfg.far_plane,

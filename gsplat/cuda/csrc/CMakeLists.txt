@@ -25,7 +25,7 @@ set(CMAKE_PREFIX_PATH "/home/cvgluser/Downloads/libtorch-cxx11-abi-shared-with-d
 #)
 
 project(gsplat LANGUAGES CXX CUDA)
-
+set(LIB_NAME gsplat-1.1.1)
 # 查找 Torch 库
 find_package(Torch REQUIRED)
 
@@ -37,21 +37,24 @@ file(GLOB source
     "*.cu"
     "*.cuh"
     "*.cpp"
+    "*.h"
 )
+list(REMOVE_ITEM ${source} "main.cpp")
 
-# 由于v1.1改成了模版编程，此条命令可能会出现问题
-add_library(${PROJECT_NAME} ${source})
+# 由于v1.1.1改成了模版编程，此条命令可能会出现问题
+add_library(${LIB_NAME} ${source})
 
 # 设置属性
-set_target_properties(${PROJECT_NAME} PROPERTIES CUDA_ARCHITECTURES "70;75;86")
+set_target_properties(${LIB_NAME} PROPERTIES CUDA_ARCHITECTURES "70;75;86")
 
 # 包含目录
-target_include_directories(${PROJECT_NAME} PUBLIC
+target_include_directories(${LIB_NAME} PUBLIC
     /usr/include/python3.8
     ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES}
 )
 
 # 链接 Torch 库
-target_link_libraries(${PROJECT_NAME} ${TORCH_LIBRARIES})
-
+target_link_libraries(${LIB_NAME} ${TORCH_LIBRARIES})
+add_executable(${PROJECT_NAME} main.cpp)
+target_link_libraries(${PROJECT_NAME}  ${LIB_NAME})
 

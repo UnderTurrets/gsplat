@@ -94,7 +94,7 @@ fully_fused_projection_fwd_kernel(const uint32_t C, const uint32_t N,
     // compensation定义为，添加前的det除以添加后的det，若出现负数，则返回0
     T compensation;
     T det = add_blur(eps2d, covar2d, compensation);
-    // 检验正定性
+    // 检验正定性，保留半正定的
     if (det <= 0.f) {
         radii[idx] = 0;
         return;
@@ -105,6 +105,7 @@ fully_fused_projection_fwd_kernel(const uint32_t C, const uint32_t N,
     inverse(covar2d, covar2d_inv);
 
     // take 3 sigma as the radius (non differentiable)
+    // v1是协方差矩阵的较大的一个特征值
     T b = 0.5f * (covar2d[0][0] + covar2d[1][1]);
     T v1 = b + sqrt(max(0.01f, b * b - det));
     // 此时覆盖的概率密度的积分大于0.997，可以认为包含了所有有效的分布
@@ -112,12 +113,14 @@ fully_fused_projection_fwd_kernel(const uint32_t C, const uint32_t N,
     // T v2 = b - sqrt(max(0.1f, b * b - det));
     // T radius = ceil(3.f * sqrt(max(v1, v2)));
 
+    // 去除半径太小的
     if (radius <= radius_clip) {
         radii[idx] = 0;
         return;
     }
 
     // mask out gaussians outside the image region
+    // 去除超过图像范围的
     if (mean2d.x + radius <= 0 || mean2d.x - radius >= image_width ||
         mean2d.y + radius <= 0 || mean2d.y - radius >= image_height) {
         radii[idx] = 0;

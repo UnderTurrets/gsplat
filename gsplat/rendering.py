@@ -313,7 +313,6 @@ def rasterization(
                 shs = colors
             colors = spherical_harmonics(sh_degree, dirs, shs, masks=masks)  # [C, N, 3]
         # make it apple-to-apple with Inria's CUDA Backend.
-        # 为什么加0.5？
         colors = torch.clamp_min(colors + 0.5, 0.0)
 
     # Rasterize to pixels

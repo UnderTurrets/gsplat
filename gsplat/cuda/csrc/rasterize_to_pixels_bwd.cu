@@ -29,8 +29,7 @@ __global__ void rasterize_to_pixels_bwd_kernel(
     const S *__restrict__ render_alphas,  // [C, image_height, image_width, 1]
     const int32_t *__restrict__ last_ids, // [C, image_height, image_width]
     // grad inputs
-    const S *__restrict__ v_render_colors, // [C, image_height, image_width,
-                                           // COLOR_DIM]
+    const S *__restrict__ v_render_colors, // [C, image_height, image_width, COLOR_DIM]
     const S *__restrict__ v_render_alphas, // [C, image_height, image_width, 1]
     // grad outputs
     vec2<S> *__restrict__ v_means2d_abs, // [C, N, 2] or [nnz, 2]
@@ -112,6 +111,7 @@ __global__ void rasterize_to_pixels_bwd_kernel(
     // each thread loads one gaussian at a time before rasterizing
     const uint32_t tr = block.thread_rank();
     cg::thread_block_tile<32> warp = cg::tiled_partition<32>(block);
+    // 拿到这个tile里位于最后索引的gaussian的索引id
     const int32_t warp_bin_final = cg::reduce(warp, bin_final, cg::greater<int>());
     for (uint32_t b = 0; b < num_batches; ++b) {
         // resync all threads before writing next batch of shared mem
@@ -188,19 +188,21 @@ __global__ void rasterize_to_pixels_bwd_kernel(
                 const S fac = alpha * T;
                 PRAGMA_UNROLL
                 for (uint32_t k = 0; k < COLOR_DIM; ++k) {
-                    // 式子（16）
+                    // 式子（16）偏Ci/偏cn * 偏Li/偏Ci
                     v_rgb_local[k] = fac * v_render_c[k];
                 }
                 // contribution from this pixel
                 S v_alpha = 0.f;
                 for (uint32_t k = 0; k < COLOR_DIM; ++k) {
-                    // 式子（18）
+                    // 式子（18）偏Ci/偏alpha * 偏Li/偏Ci
                     v_alpha += (rgbs_batch[t * COLOR_DIM + k] * T - buffer[k] * ra) *
                                v_render_c[k];
                 }
 
-                // 这两部分文档中未给出式子
+                // 这部分文档中未给出式子
                 v_alpha += T_final * ra * v_render_a;
+
+                // 若有background，根据loss的公式推算出梯度
                 // contribution from background pixel
                 if (backgrounds != nullptr) {
                     S accum = 0.f;
@@ -212,25 +214,30 @@ __global__ void rasterize_to_pixels_bwd_kernel(
                 }
 
 
-                
                 if (opac * vis <= 0.999f) {
+                    // 式子（19）偏alpha/偏sigma * 偏Li/偏alpha
                     const S v_sigma = -opac * vis * v_alpha;
+                    // 偏sigma/偏SIGMA * 偏Li/偏sigma
                     v_conic_local = {0.5f * v_sigma * delta.x * delta.x,
                                      v_sigma * delta.x * delta.y,
                                      0.5f * v_sigma * delta.y * delta.y};
+                    // 偏sigma/偏delta * 偏Li/偏sigma
                     v_xy_local = {v_sigma * (conic.x * delta.x + conic.y * delta.y),
                                   v_sigma * (conic.y * delta.x + conic.z * delta.y)};
                     if (v_means2d_abs != nullptr) {
                         v_xy_abs_local = {abs(v_xy_local.x), abs(v_xy_local.y)};
                     }
+                    // 式子（19）偏alpha/偏opacity * 偏Li/偏alpha
                     v_opacity_local = vis * v_alpha;
                 }
 
+                // 式子（18） 累计Sn
                 PRAGMA_UNROLL
                 for (uint32_t k = 0; k < COLOR_DIM; ++k) {
                     buffer[k] += rgbs_batch[t * COLOR_DIM + k] * fac;
                 }
             }
+            // 把这个block内的值累计起来
             warpSum<COLOR_DIM, S>(v_rgb_local, warp);
             warpSum<decltype(warp), S>(v_conic_local, warp);
             warpSum<decltype(warp), S>(v_xy_local, warp);
@@ -240,7 +247,9 @@ __global__ void rasterize_to_pixels_bwd_kernel(
             warpSum<decltype(warp), S>(v_opacity_local, warp);
             if (warp.thread_rank() == 0) {
                 int32_t g = id_batch[t]; // flatten index in [C * N] or [nnz]
+                // 写入v_colors,v_opacities,v_conics,v_means2d,v_means2d_abs的相应位置
                 S *v_rgb_ptr = (S *)(v_colors) + COLOR_DIM * g;
+                gpuAtomicAdd(v_opacities + g, v_opacity_local);
                 PRAGMA_UNROLL
                 for (uint32_t k = 0; k < COLOR_DIM; ++k) {
                     gpuAtomicAdd(v_rgb_ptr + k, v_rgb_local[k]);
@@ -260,8 +269,6 @@ __global__ void rasterize_to_pixels_bwd_kernel(
                     gpuAtomicAdd(v_xy_abs_ptr, v_xy_abs_local.x);
                     gpuAtomicAdd(v_xy_abs_ptr + 1, v_xy_abs_local.y);
                 }
-
-                gpuAtomicAdd(v_opacities + g, v_opacity_local);
             }
         }
     }

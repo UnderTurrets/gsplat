@@ -349,10 +349,8 @@ def accumulate(
         - **alphas**: Accumulated opacities. [C, image_height, image_width, 1]
     """
 
-    try:
-        from nerfacc import accumulate_along_rays, render_weight_from_alpha
-    except ImportError:
-        raise ImportError("Please install nerfacc package: pip install nerfacc")
+
+    from nerfacc import accumulate_along_rays, render_weight_from_alpha
 
     C, N = means2d.shape[:2]
     channels = colors.shape[-1]
