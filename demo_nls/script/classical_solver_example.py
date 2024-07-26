@@ -20,7 +20,7 @@ epoch = 10
 
 # 初始化非线性最小二乘求解器和梯度下降求解器
 optimizer_nls = Classical_NLS_Solver(max_iter=2000, tolX=1e-4, tolOpt=1e-6, tolFun=1e-4)
-optimizer_gd = Classical_GD_Solver(max_iter=2000, tolX=1e-5, tolOpt=1e-6, tolFun=1e-5)
+optimizer_gd = Classical_GD_Solver(max_iter=2000, tolX=1e-4, tolOpt=1e-6, tolFun=1e-4)
 
 data = []
 
@@ -168,8 +168,8 @@ for e_i in range(epoch):
     # adam_optimize(params=[param1_adam, param2_adam], observes = obs, max_iterations=500)
     ## ==================================test on CostFactor_Env3==================================
 
-    lr = 1e-1
-    costFunc1DGS_adam_optimize(cost_factor, max_iterations=2000, lr=lr)
+    lr = 5e-1
+    # costFunc1DGS_adam_optimize(cost_factor, max_iterations=1000, lr=lr)
 
     start_time = time.time()
     optimizer_nls.solve(cost_factor)

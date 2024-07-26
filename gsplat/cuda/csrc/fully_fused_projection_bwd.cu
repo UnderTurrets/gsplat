@@ -30,12 +30,12 @@ __global__ void fully_fused_projection_bwd_kernel(
     const int32_t *__restrict__ radii,       // [C, N]
     const T *__restrict__ conics,        // [C, N, 3]
     const T *__restrict__ compensations, // [C, N] optional
-    // grad outputs
+    // grad inputs from rasterize_to_pixels
     const T *__restrict__ v_means2d,       // [C, N, 2]
     const T *__restrict__ v_depths,        // [C, N]
     const T *__restrict__ v_conics,        // [C, N, 3]
     const T *__restrict__ v_compensations, // [C, N] optional
-    // grad inputs
+    // grad outputs
     T *__restrict__ v_means,   // [N, 3]
     T *__restrict__ v_covars,  // [N, 6] optional
     T *__restrict__ v_quats,   // [N, 4] optional
@@ -64,7 +64,8 @@ __global__ void fully_fused_projection_bwd_kernel(
     // vjp: compute the inverse of the 2d covariance
     mat2<T> covar2d_inv = mat2<T>(conics[0], conics[1], conics[1], conics[2]);
     mat2<T> v_covar2d_inv =
-        mat2<T>(v_conics[0], v_conics[1] * .5f, v_conics[1] * .5f, v_conics[2]);
+        mat2<T>(v_conics[0], v_conics[1], v_conics[1], v_conics[2]);
+    // 式子（21） 拿到 偏Li/偏SIGMA
     mat2<T> v_covar2d(0.f);
     inverse_vjp(covar2d_inv, v_covar2d_inv, v_covar2d);
 
@@ -100,12 +101,14 @@ __global__ void fully_fused_projection_bwd_kernel(
     vec3<T> mean_c;
     pos_world_to_cam(R, t, glm::make_vec3(means), mean_c);
     mat3<T> covar_c;
+    // 对协方差矩阵做线性变换
     covar_world_to_cam(R, covar, covar_c);
 
     // vjp: perspective projection
     T fx = Ks[0], cx = Ks[2], fy = Ks[4], cy = Ks[5];
     mat3<T> v_covar_c(0.f);
     vec3<T> v_mean_c(0.f);
+    // 拿到 偏Li/偏SIGMA' 和 偏Li/偏t
     persp_proj_vjp<T>(mean_c, covar_c, fx, fy, cx, cy, image_width, image_height,
                    v_covar2d, glm::make_vec2(v_means2d), v_mean_c, v_covar_c);
 
@@ -198,7 +201,7 @@ fully_fused_projection_bwd_tensor(
     const torch::Tensor &radii,                       // [C, N]
     const torch::Tensor &conics,                      // [C, N, 3]
     const at::optional<torch::Tensor> &compensations, // [C, N] optional
-    // grad outputs
+    // grad inputs from rasterize_to_pixels
     const torch::Tensor &v_means2d,                     // [C, N, 2]
     const torch::Tensor &v_depths,                      // [C, N]
     const torch::Tensor &v_conics,                      // [C, N, 3]

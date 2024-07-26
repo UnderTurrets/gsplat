@@ -181,12 +181,12 @@ def create_splats_with_optimizers(
     # 通过scikit库的knn近邻算法选出距离自己最近的三个点并平方，在最后一个维度取平均 [N,3]->[N,]
     dist2_avg = (knn(points, 4)[:, 1:] ** 2).mean(dim=-1)  # [N,]
     dist_avg = torch.sqrt(dist2_avg)
-    # 基于近邻距离取对数值初始化，并复制成3个相同的值
+    # 基于近邻距离取对数值初始化，并复制成3个相同的值，后续再exp运算
     scales = torch.log(dist_avg * init_scale).unsqueeze(-1).repeat(1, 3)  # [N, 3]
     # 生成随机四元数
     quats = torch.rand((N, 4))  # [N, 4]
 
-    # 用logit函数初始化不透明度
+    # 用logit函数初始化不透明度，后续再sigmoid运算
     opacities = torch.logit(torch.full((N,), init_opacity))  # [N,]
 
     params = [
@@ -224,6 +224,15 @@ def create_splats_with_optimizers(
         )
         for name, _, lr in params
     }
+    # import torch_optimizer.adahessian as adahessian
+    # optimizers = {
+    #     name: adahessian.Adahessian(
+    #         [{"params": splats[name], "lr": lr * math.sqrt(batch_size)}],
+    #         eps=1e-15 / math.sqrt(batch_size),
+    #         betas=(1 - batch_size * (1 - 0.9), 1 - batch_size * (1 - 0.999)),
+    #     )
+    #     for name, _, lr in params
+    # }
     return splats, optimizers
 
 
@@ -387,7 +396,7 @@ class Runner:
             colors = torch.cat([self.splats["sh0"], self.splats["shN"]], 1)  # [N, K, 3]
 
         rasterize_mode = "antialiased" if self.cfg.antialiased else "classic"
-        # cuda complementation
+        ## cuda complementation
         render_colors, render_alphas, info = rasterization(
             means=means,
             quats=quats,
@@ -404,7 +413,7 @@ class Runner:
             rasterize_mode=rasterize_mode,
             **kwargs,
         )
-        # torch complementation
+        ## torch complementation
         # render_colors, render_alphas, info = _rasterization(
         #     means=means,
         #     quats=quats,

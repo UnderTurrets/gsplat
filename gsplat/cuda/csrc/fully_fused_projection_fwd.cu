@@ -33,7 +33,6 @@ fully_fused_projection_fwd_kernel(const uint32_t C, const uint32_t N,
                                   T *__restrict__ conics,       // [C, N, 3]
                                   T *__restrict__ compensations // [C, N] optional
 ) {
-
     // parallelize over C * N.
     // 获得全局索引
     uint32_t idx = cg::this_grid().thread_rank();
@@ -82,6 +81,7 @@ fully_fused_projection_fwd_kernel(const uint32_t C, const uint32_t N,
                                      &covar, nullptr);
     }
     mat3<T> covar_c;
+    // 对协方差矩阵做线性变换
     covar_world_to_cam(R, covar, covar_c);
 
     // perspective projection

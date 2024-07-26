@@ -28,10 +28,10 @@ __global__ void rasterize_to_pixels_bwd_kernel(
     // fwd outputs
     const S *__restrict__ render_alphas,  // [C, image_height, image_width, 1]
     const int32_t *__restrict__ last_ids, // [C, image_height, image_width]
-    // grad inputs
+    // grad inputs from loss which is automatically computed by torch
     const S *__restrict__ v_render_colors, // [C, image_height, image_width, COLOR_DIM]
     const S *__restrict__ v_render_alphas, // [C, image_height, image_width, 1]
-    // grad outputs
+    // grad outputs to fully_fused_projection
     vec2<S> *__restrict__ v_means2d_abs, // [C, N, 2] or [nnz, 2]
     vec2<S> *__restrict__ v_means2d,     // [C, N, 2] or [nnz, 2]
     vec3<S> *__restrict__ v_conics,      // [C, N, 3] or [nnz, 3]
@@ -219,7 +219,7 @@ __global__ void rasterize_to_pixels_bwd_kernel(
                     const S v_sigma = -opac * vis * v_alpha;
                     // 偏sigma/偏SIGMA * 偏Li/偏sigma
                     v_conic_local = {0.5f * v_sigma * delta.x * delta.x,
-                                     v_sigma * delta.x * delta.y,
+                                     0.5f * v_sigma * delta.x * delta.y,
                                      0.5f * v_sigma * delta.y * delta.y};
                     // 偏sigma/偏delta * 偏Li/偏sigma
                     v_xy_local = {v_sigma * (conic.x * delta.x + conic.y * delta.y),
@@ -392,7 +392,7 @@ rasterize_to_pixels_bwd_tensor(
     // forward outputs
     const torch::Tensor &render_alphas, // [C, image_height, image_width, 1]
     const torch::Tensor &last_ids,      // [C, image_height, image_width]
-    // gradients of outputs
+    // gradients inputs from loss which is automatically computed by torch
     const torch::Tensor &v_render_colors, // [C, image_height, image_width, 3]
     const torch::Tensor &v_render_alphas, // [C, image_height, image_width, 1]
     // options

@@ -219,10 +219,10 @@ class CostFactor_1DGS(CostFactor):
             else:
                 import pandas as pd
                 target = pd.read_csv(
-                    r"/home/cvgluser/Desktop/pyProjects/NeRF-3DGS/demo_nls/Introduction-to-Gaussian-Splatting/DailyDelhiClimateTest.csv")[
+                    r"/home/cvgluser/Desktop/pyProjects/gsplat/demo_nls/Introduction-to-Gaussian-Splatting/DailyDelhiClimateTest.csv")[
                     'meantemp']
                 ## 设置移动平均窗口大小
-                window_size = 7
+                window_size = 10
                 ## 计算移动平均值
                 target = target.rolling(window=window_size).mean()
                 # 用前一个有效值填充 NaN

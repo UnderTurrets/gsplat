@@ -29,14 +29,13 @@ class Classical_NLS_Solver(SolverFactor):
         psnr_history = []
 
         def draw():
-            plt.clf()
-            plt.title('LM,nu={:.2e},tolX={:.2e}, tolOpt={:.2e}, tolFun={:.2e}'.format(nu,self.tolX, self.tolOpt, self.tolFun))
+            plt.figure()
+            plt.title(f'LM,nu={nu:.2e},tolX={self.tolX:.2e}, tolOpt={self.tolOpt:.2e}, tolFun={self.tolFun:.2e}')
             plt.plot(loss_history, label='loss')
             plt.xlabel('iteration')
             plt.show()
 
         def draw_1DGS():
-            plt.clf()
             fig = plt.figure(figsize=(8, 30),dpi=200)
             plt.subplot(5, 1, 1)
             plt.plot(miu_history, label='miu')
@@ -65,114 +64,118 @@ class Classical_NLS_Solver(SolverFactor):
             plt.legend()
 
             fig.tight_layout()
-            plt.show()
 
+        plt.figure()
+        plt.ion()
+        plt.show()
+        pbar = tqdm(range(self.max_iter))
+        for iterations in pbar:
+            plt.cla()
+            plt.plot(cost_factor.obs[:, 0], cost_factor.obs[:, 1], label='origin')
+            plt.plot(cost_factor.obs[:, 0], cost_factor.reconstructed_signal(), label='reconstructed')
+            plt.xlabel('x')
+            plt.legend()
+            plt.pause(0.001)
 
+            loss_history.append(cost_factor.error(weights))
+            miu_history.append(miu)
+            nu_history.append(nu)
 
-        with tqdm(total=self.max_iter, desc='LM') as pbar:
-            for iterations in range(self.max_iter):
-                loss_history.append(cost_factor.error(weights))
-                miu_history.append(miu)
-                nu_history.append(nu)
+            # for 1DGS
+            psnr_history.append(cost_factor.calculate_psnr())
 
-                # for 1DGS
-                psnr_history.append(cost_factor.calculate_psnr())
+            ## ============================================test on torch.autograd.grad======================================================
+            # from .LMoptimizer import LevenbergMarquardt
+            # import torch
+            # x = torch.tensor(cost_factor.x, requires_grad=True, dtype=torch.float32)
+            # obs = torch.tensor(cost_factor.obs, requires_grad=True, dtype=torch.float32)
+            # residual = obs[:, 2:4] - (obs[:, 0:2] @ x.reshape(2, 3)[:, :2].t() + x.reshape(2, 3)[:, 2].t())
+            # _weights = torch.ones(size=(cost_factor.obs_dim, 1)).expand(-1, cost_factor.residual_dim)
+            # loss = 0.5 * torch.sum(torch.square(residual * _weights))
+            # loss.backward(create_graph=True)
+            ## they equals
+            # print(x.grad)
+            # print(g)
+            # print(torch.autograd.grad(loss, x))
 
-                ## ============================================test on torch.autograd.grad======================================================
-                # from .LMoptimizer import LevenbergMarquardt
-                # import torch
-                # x = torch.tensor(cost_factor.x, requires_grad=True, dtype=torch.float32)
-                # obs = torch.tensor(cost_factor.obs, requires_grad=True, dtype=torch.float32)
-                # residual = obs[:, 2:4] - (obs[:, 0:2] @ x.reshape(2, 3)[:, :2].t() + x.reshape(2, 3)[:, 2].t())
-                # _weights = torch.ones(size=(cost_factor.obs_dim, 1)).expand(-1, cost_factor.residual_dim)
-                # loss = 0.5 * torch.sum(torch.square(residual * _weights))
-                # loss.backward(create_graph=True)
-                ## they equals
-                # print(x.grad)
-                # print(g)
-                # print(torch.autograd.grad(loss, x))
+            ## they equals
+            # print(cost_factor._jacobian)
+            # def cost1(x):
+            #     residual = obs[:, 2:4] - (obs[:, 0:2] @ x[:4].reshape(2, 2).t() + x[4:].t())
+            #     # weights = torch.ones(size=(cost_factor.obs_dim, 1)).expand(-1, cost_factor.residual_dim)
+            #     # loss = 0.5 * torch.sum(torch.square(residual * weights))
+            #     return residual
+            # print(torch.autograd.functional.jacobian(cost1, x))
 
-                ## they equals
-                # print(cost_factor._jacobian)
-                # def cost1(x):
-                #     residual = obs[:, 2:4] - (obs[:, 0:2] @ x[:4].reshape(2, 2).t() + x[4:].t())
-                #     # weights = torch.ones(size=(cost_factor.obs_dim, 1)).expand(-1, cost_factor.residual_dim)
-                #     # loss = 0.5 * torch.sum(torch.square(residual * weights))
-                #     return residual
-                # print(torch.autograd.functional.jacobian(cost1, x))
+            ## Hessian.
+            ## they equals
+            # print(A)
+            # def cost2(x):
+            #     residual = obs[:, 2:4] - (obs[:, 0:2] @ x[:4].reshape(2, 2).t() + x[4:].t())
+            #     weights = torch.ones(size=(cost_factor.obs_dim, 1)).expand(-1, cost_factor.residual_dim)
+            #     loss = 0.5 * torch.sum(torch.square(residual * weights))
+            #     return loss
+            # print(torch.autograd.functional.hessian(cost2,x))
 
-                ## Hessian.
-                ## they equals
-                # print(A)
-                # def cost2(x):
-                #     residual = obs[:, 2:4] - (obs[:, 0:2] @ x[:4].reshape(2, 2).t() + x[4:].t())
-                #     weights = torch.ones(size=(cost_factor.obs_dim, 1)).expand(-1, cost_factor.residual_dim)
-                #     loss = 0.5 * torch.sum(torch.square(residual * weights))
-                #     return loss
-                # print(torch.autograd.functional.hessian(cost2,x))
+            ## test LMoptimizer
+            # a11, a12, b1 = cost_factor.x[0], cost_factor.x[1], cost_factor.x[2]
+            # a21, a22, b2 = cost_factor.x[3], cost_factor.x[4], cost_factor.x[5]
+            # param1 = torch.tensor(data=[[a11, a12, b1]], requires_grad=True, dtype=torch.float32)
+            # param2 = torch.tensor(data=[[a21, a22, b2]], requires_grad=True, dtype=torch.float32)
+            # import torch_optimizer.adahessian as adahessian
+            # opt = LMoptimizer.LevenbergMarquardt([param1, param2],is_estimate=False)
+            # def closure():
+            #     opt.zero_grad()
+            #     obs = torch.tensor(cost_factor.obs, requires_grad=True, dtype=torch.float32)
+            #     A = torch.cat(tensors=[param1, param2], dim=0)[:, 0:2]
+            #     B = torch.cat(tensors=[param1, param2], dim=0)[:, 2]
+            #     residual = obs[:, 2:4] - (obs[:, 0:2] @ A.t() + B.t())
+            #     _weights = torch.ones(size=(cost_factor.obs_dim, 1)).expand(-1, cost_factor.residual_dim)
+            #     loss = 0.5 * torch.sum(torch.square(residual * _weights))
+            #     loss.backward(create_graph=True)
+            #     return loss
+            # opt.step(closure)
+            ## ============================================test======================================================
 
-                ## test LMoptimizer
-                # a11, a12, b1 = cost_factor.x[0], cost_factor.x[1], cost_factor.x[2]
-                # a21, a22, b2 = cost_factor.x[3], cost_factor.x[4], cost_factor.x[5]
-                # param1 = torch.tensor(data=[[a11, a12, b1]], requires_grad=True, dtype=torch.float32)
-                # param2 = torch.tensor(data=[[a21, a22, b2]], requires_grad=True, dtype=torch.float32)
-                # import torch_optimizer.adahessian as adahessian
-                # opt = LMoptimizer.LevenbergMarquardt([param1, param2],is_estimate=False)
-                # def closure():
-                #     opt.zero_grad()
-                #     obs = torch.tensor(cost_factor.obs, requires_grad=True, dtype=torch.float32)
-                #     A = torch.cat(tensors=[param1, param2], dim=0)[:, 0:2]
-                #     B = torch.cat(tensors=[param1, param2], dim=0)[:, 2]
-                #     residual = obs[:, 2:4] - (obs[:, 0:2] @ A.t() + B.t())
-                #     _weights = torch.ones(size=(cost_factor.obs_dim, 1)).expand(-1, cost_factor.residual_dim)
-                #     loss = 0.5 * torch.sum(torch.square(residual * _weights))
-                #     loss.backward(create_graph=True)
-                #     return loss
-                # opt.step(closure)
-                ## ============================================test======================================================
+            self.iteration = iterations  # 记录当前迭代次数
 
-                self.iteration = iterations  # 记录当前迭代次数
+            # 计算更新步长
+            update = - np.linalg.inv(A + miu * np.eye(cost_factor.x_dim)) @ g
 
-                # 计算更新步长
-                update = - np.linalg.inv(A + miu * np.eye(cost_factor.x_dim)) @ g
+            # 创建参数更新后的假设因子
+            cost_factor_hypothesis = copy.deepcopy(cost_factor)
+            cost_factor_hypothesis.step(update)
 
-                # 创建参数更新后的假设因子
-                cost_factor_hypothesis = copy.deepcopy(cost_factor)
-                cost_factor_hypothesis.step(update)
+            # 检查停止条件
+            if np.linalg.norm(g, ord=np.inf) < self.tolOpt:
+                print('grad is low so stop')
+                break
+            if np.linalg.norm(update) < self.tolX * max(1, np.linalg.norm(cost_factor.x)):
+                print('update is low so stop')
+                break
+            if abs(cost_factor_hypothesis.error(weights) - cost_factor.error(weights)) < self.tolFun * max(1, abs(cost_factor.error(weights))):
+                print('error is low so stop')
+                break
 
-                # 检查停止条件
-                if np.linalg.norm(g, ord=np.inf) < self.tolOpt:
-                    print('grad is low so stop')
-                    break
-                if np.linalg.norm(update) < self.tolX * max(1, np.linalg.norm(cost_factor.x)):
-                    print('update is low so stop')
-                    break
-                if abs(cost_factor_hypothesis.error(weights) - cost_factor.error(weights)) < self.tolFun * max(1, abs(cost_factor.error(weights))):
-                    print('error is low so stop')
-                    break
+            # 计算误差比率
+            varrho = (cost_factor_hypothesis.error(weights) - cost_factor.error(weights)) / (
+                    np.array(update).T @ cost_factor_hypothesis.gradient(weights))
 
-                # 计算误差比率
-                varrho = (cost_factor_hypothesis.error(weights) - cost_factor.error(weights)) / (
-                        np.array(update).T @ cost_factor_hypothesis.gradient(weights))
+            # 根据误差比率调整参数
+            if varrho > 0:
+                cost_factor = copy.deepcopy(cost_factor_hypothesis)
+                A = cost_factor.hessian(weights)
+                g = cost_factor.gradient(weights)
+                miu = miu * max(1 / 3, 1 - (2 * varrho - 1) ** 3)
+                nu = 2
+            else:
+                miu = miu * nu
+                nu = nu * 2
 
-                # 根据误差比率调整参数
-                if varrho > 0:
-                    cost_factor = copy.deepcopy(cost_factor_hypothesis)
-                    A = cost_factor.hessian(weights)
-                    g = cost_factor.gradient(weights)
-                    miu = miu * max(1 / 3, 1 - (2 * varrho - 1) ** 3)
-                    nu = 2
-                else:
-                    miu = miu * nu
-                    nu = nu * 2
-
-                pbar.update()
-                pbar.set_postfix({"iteration": iterations})  # 可选择性添加其他信息
-                if pbar.format_dict["rate"] is not None:
-                    iteration_speed_history.append(pbar.format_dict["rate"])
-
-
-        # for 1DGS
+            desc = f"LM | iteration:{iterations}"
+            pbar.set_description(desc)
+            if pbar.format_dict["rate"] is not None:
+                iteration_speed_history.append(pbar.format_dict["rate"])
         draw_1DGS()
         return cost_factor, numpy.array(iteration_speed_history).mean()
 
@@ -195,19 +198,21 @@ class Classical_GD_Solver(SolverFactor):
         psnr_history = []
 
         def draw():
-            plt.clf()
-            plt.title('GD,tolX={:.2e}, tolOpt={:.2e}, tolFun={:.2e}'.format(self.tolX, self.tolOpt, self.tolFun))
+            plt.figure()
+            plt.title(f'GD,tolX={self.tolX:.2e}, tolOpt={self.tolOpt:.2e}, tolFun={self.tolFun:.2e}')
             plt.plot(loss_history, label='loss')
             plt.xlabel('iteration')
             plt.show()
+
         def draw_1DGS():
-            plt.clf()
             fig = plt.figure(figsize=(6, 18), dpi=200)
             plt.subplot(3, 1, 1)
             plt.plot(loss_history, label='loss')
             plt.legend()
-            plt.title('GD,gaussian_num={:},\ntolX={:.2e}, tolOpt={:.2e}, tolFun={:.2e}'.format(cost_factor.gaussian_num,
-                                                                                          self.tolX, self.tolOpt, self.tolFun))
+            plt.title(f'GD,gaussian_num={cost_factor.gaussian_num:},\n'
+                      f'tolX={self.tolX:.2e},'
+                      f'tolOpt={self.tolOpt:.2e},'
+                      f'tolFun={self.tolFun:.2e}')
             plt.subplot(3, 1, 2)
             plt.plot(psnr_history, label='psnr')
             plt.legend()
@@ -220,38 +225,58 @@ class Classical_GD_Solver(SolverFactor):
             fig.tight_layout()
             plt.show()
 
+        def draw_1DGS_inProcess():
+            plt.ion()
+            plt.show()
+            plt.cla()
+            plt.plot(cost_factor.obs[:, 0], cost_factor.obs[:, 1], label='origin')
+            plt.plot(cost_factor.obs[:, 0], cost_factor.reconstructed_signal(), label='reconstructed')
+            plt.xlabel('x')
+            plt.legend()
+            plt.pause(0.001)
+
+
+        plt.figure()
+        plt.ion()
+        plt.show()
         # 迭代求解
-        with tqdm(total=self.max_iter, desc='GD') as pbar:
-            for iterations in range(self.max_iter):
-                self.iteration = iterations  # 记录当前迭代次数
-                loss_history.append(cost_factor.error(weights))
-                # for 1DGS
-                psnr_history.append(cost_factor.calculate_psnr())
+        pbar = tqdm(range(self.max_iter))
+        for iterations in pbar:
+            plt.cla()
+            plt.plot(cost_factor.obs[:, 0], cost_factor.obs[:, 1], label='origin')
+            plt.plot(cost_factor.obs[:, 0], cost_factor.reconstructed_signal(), label='reconstructed')
+            plt.xlabel('x')
+            plt.legend()
+            plt.pause(0.001)
 
-                g = cost_factor.gradient(weights)  # 计算梯度
+            self.iteration = iterations  # 记录当前迭代次数
+            loss_history.append(cost_factor.error(weights))
+            # for 1DGS
+            psnr_history.append(cost_factor.calculate_psnr())
 
-                # 计算更新步长
-                update = - self.lr * g
-                cost_factor_hypothesis = copy.deepcopy(cost_factor)
-                cost_factor_hypothesis.step(update)
+            g = cost_factor.gradient(weights)  # 计算梯度
 
-                # 检查停止条件
-                if np.linalg.norm(g, ord=np.inf) < self.tolOpt:
-                    print("gradient is low so stop")
-                    break
-                if np.linalg.norm(update) < self.tolX * max(1, np.linalg.norm(cost_factor.x)):
-                    print("update is low so stop")
-                    break
-                if abs(cost_factor_hypothesis.error(weights) - cost_factor.error(weights)) < self.tolFun * max(1,abs(cost_factor.error(weights))):
-                    print("error is low so stop")
-                    break
-                cost_factor = copy.deepcopy(cost_factor_hypothesis)
+            # 计算更新步长
+            update = - self.lr * g
+            cost_factor_hypothesis = copy.deepcopy(cost_factor)
+            cost_factor_hypothesis.step(update)
 
-                # 更新进度条
-                pbar.update(1)
-                pbar.set_postfix({"iteration": iterations})  # 可选择性添加其他信息
-                if pbar.format_dict["rate"] is not None:
-                    iteration_speed_history.append(pbar.format_dict["rate"])
+            # 检查停止条件
+            if np.linalg.norm(g, ord=np.inf) < self.tolOpt:
+                print("gradient is low so stop")
+                break
+            if np.linalg.norm(update) < self.tolX * max(1, np.linalg.norm(cost_factor.x)):
+                print("update is low so stop")
+                break
+            if abs(cost_factor_hypothesis.error(weights) - cost_factor.error(weights)) < self.tolFun * max(1,abs(cost_factor.error(weights))):
+                print("error is low so stop")
+                break
+            cost_factor = copy.deepcopy(cost_factor_hypothesis)
+
+            desc = f"GD | iteration:{iterations}"
+            pbar.set_description(desc)
+            if pbar.format_dict["rate"] is not None:
+                iteration_speed_history.append(pbar.format_dict["rate"])
 
         draw_1DGS()
         return cost_factor, numpy.array(iteration_speed_history).mean()

@@ -63,7 +63,7 @@ inline __device__ void quat_scale_to_covar_preci(const vec4<T> quat,
         *covar = M * glm::transpose(M);
     }
     if (preci != nullptr) {
-        // P = R * S^-1 * S^-1 * Rt
+        // P = C^-1 = R * St^-1 * S^-1 * Rt = R * S^-1 * S^-1 * Rt
         mat3<T> S = mat3<T>(1.0f / scale[0], 0.f, 0.f, 0.f, 1.0f / scale[1], 0.f, 0.f,
                             0.f, 1.0f / scale[2]);
         mat3<T> M = R * S;
@@ -145,41 +145,41 @@ inline __device__ void quat_scale_to_preci_vjp(
 template <typename T>
 inline __device__ void persp_proj(
     // inputs
-    const vec3<T> mean3d, const mat3<T> cov3d, const T fx, const T fy, const T cx,
+    const vec3<T> mean3d_c, const mat3<T> cov3d_c, const T fx, const T fy, const T cx,
     const T cy, const uint32_t width, const uint32_t height,
     // outputs
     mat2<T> &cov2d, vec2<T> &mean2d) {
-    T x = mean3d[0], y = mean3d[1], z = mean3d[2];
+    T x = mean3d_c[0], y = mean3d_c[1], z = mean3d_c[2];
+    T rz = 1.f / z;
+    // 与文档不同，没有用P，直接用内参去计算了
+    mean2d = vec2<T>({fx * x * rz + cx, fy * y * rz + cy});
 
     T tan_fovx = 0.5f * width / fx;
     T tan_fovy = 0.5f * height / fy;
     T lim_x = 1.3f * tan_fovx;
     T lim_y = 1.3f * tan_fovy;
-
-    T rz = 1.f / z;
     T rz2 = rz * rz;
     T tx = z * min(lim_x, max(-lim_x, x * rz));
     T ty = z * min(lim_y, max(-lim_y, y * rz));
-
     // mat3x2 is 3 columns x 2 rows.
+    // J是mean2d对mean3d的jacobian（将x换成经限制的tx,y换成经限制的ty,z不变）
     mat3x2<T> J = mat3x2<T>(fx * rz, 0.f,                  // 1st column
                             0.f, fy * rz,                  // 2nd column
                             -fx * tx * rz2, -fy * ty * rz2 // 3rd column
     );
-    cov2d = J * cov3d * glm::transpose(J);
-    mean2d = vec2<T>({fx * x * rz + cx, fy * y * rz + cy});
+    cov2d = J * cov3d_c * glm::transpose(J);
 }
 
 template <typename T>
 inline __device__ void persp_proj_vjp(
     // fwd inputs
-    const vec3<T> mean3d, const mat3<T> cov3d, const T fx, const T fy, const T cx,
+    const vec3<T> mean3d_c, const mat3<T> cov3d_c, const T fx, const T fy, const T cx,
     const T cy, const uint32_t width, const uint32_t height,
-    // grad outputs
-    const mat2<T> v_cov2d, const vec2<T> v_mean2d,
     // grad inputs
-    vec3<T> &v_mean3d, mat3<T> &v_cov3d) {
-    T x = mean3d[0], y = mean3d[1], z = mean3d[2];
+    const mat2<T> v_cov2d, const vec2<T> v_mean2d,
+    // grad outputs
+    vec3<T> &v_mean3d_c, mat3<T> &v_cov3d_c) {
+    T x = mean3d_c[0], y = mean3d_c[1], z = mean3d_c[2];
 
     T tan_fovx = 0.5f * width / fx;
     T tan_fovy = 0.5f * height / fy;
@@ -197,37 +197,38 @@ inline __device__ void persp_proj_vjp(
                             -fx * tx * rz2, -fy * ty * rz2 // 3rd column
     );
 
-    // cov = J * V * Jt; G = df/dcov = v_cov
+    // cov2d = J * V * Jt; G = df/dcov2d = v_cov2d
     // -> df/dV = Jt * G * J
+    // 与式子（24）不同，这里计算的是: 偏Li/偏SIGMA_c, SIGMA'=J * SIGMA_c * Jt
+    v_cov3d_c += glm::transpose(J) * v_cov2d * J;
     // -> df/dJ = G * J * Vt + Gt * J * V
-    v_cov3d += glm::transpose(J) * v_cov2d * J;
+    mat3x2<T> v_J =
+    v_cov2d * J * glm::transpose(cov3d_c) + glm::transpose(v_cov2d) * J * cov3d_c;
 
     // df/dx = fx * rz * df/dpixx
     // df/dy = fy * rz * df/dpixy
     // df/dz = - fx * mean.x * rz2 * df/dpixx - fy * mean.y * rz2 * df/dpixy
-    v_mean3d += vec3<T>(fx * rz * v_mean2d[0], fy * rz * v_mean2d[1],
+    // 式子（23） 但计算方式不同
+    v_mean3d_c += vec3<T>(fx * rz * v_mean2d[0], fy * rz * v_mean2d[1],
                         -(fx * x * v_mean2d[0] + fy * y * v_mean2d[1]) * rz2);
 
+    T rz3 = rz2 * rz;
     // df/dx = -fx * rz2 * df/dJ_02
     // df/dy = -fy * rz2 * df/dJ_12
     // df/dz = -fx * rz2 * df/dJ_00 - fy * rz2 * df/dJ_11
     //         + 2 * fx * tx * rz3 * df/dJ_02 + 2 * fy * ty * rz3
-    T rz3 = rz2 * rz;
-    mat3x2<T> v_J =
-        v_cov2d * J * glm::transpose(cov3d) + glm::transpose(v_cov2d) * J * cov3d;
-
     // fov clipping
     if (x * rz <= lim_x && x * rz >= -lim_x) {
-        v_mean3d.x += -fx * rz2 * v_J[2][0];
+        v_mean3d_c.x += -fx * rz2 * v_J[2][0];
     } else {
-        v_mean3d.z += -fx * rz3 * v_J[2][0] * tx;
+        v_mean3d_c.z += -fx * rz3 * v_J[2][0] * tx;
     }
     if (y * rz <= lim_y && y * rz >= -lim_y) {
-        v_mean3d.y += -fy * rz2 * v_J[2][1];
+        v_mean3d_c.y += -fy * rz2 * v_J[2][1];
     } else {
-        v_mean3d.z += -fy * rz3 * v_J[2][1] * ty;
+        v_mean3d_c.z += -fy * rz3 * v_J[2][1] * ty;
     }
-    v_mean3d.z += -fx * rz2 * v_J[0][0] - fy * rz2 * v_J[1][1] +
+    v_mean3d_c.z += -fx * rz2 * v_J[0][0] - fy * rz2 * v_J[1][1] +
                   2.f * fx * tx * rz3 * v_J[2][0] + 2.f * fy * ty * rz3 * v_J[2][1];
 }
 

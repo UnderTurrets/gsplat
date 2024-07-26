@@ -28,7 +28,7 @@ project(gsplat LANGUAGES CXX CUDA)
 set(LIB_NAME gsplat-1.1.1)
 # 查找 Torch 库
 find_package(Torch REQUIRED)
-
+find_package(glm REQUIRED)
 # 设置 C++ 编译标志
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
 
@@ -55,6 +55,7 @@ target_include_directories(${LIB_NAME} PUBLIC
 
 # 链接 Torch 库
 target_link_libraries(${LIB_NAME} ${TORCH_LIBRARIES})
+target_link_libraries(${LIB_NAME} glm)
 add_executable(${PROJECT_NAME} main.cpp)
 target_link_libraries(${PROJECT_NAME}  ${LIB_NAME})
 

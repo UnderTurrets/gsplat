@@ -82,7 +82,6 @@ def optimize_gaussians(means, variances, weights, temperatures, lr=0.1, max_iter
             loss = torch.sum((pdf - torch.tensor(temperatures)) ** 2) / len(temperatures)
             loss.backward(create_graph=True)
             return loss.item()
-
         loss = optimizer.step(closure)
 
         # optimizer.zero_grad()
