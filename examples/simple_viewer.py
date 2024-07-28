@@ -31,7 +31,7 @@ parser.add_argument(
 parser.add_argument(
     "--scene_grid", type=int, default=1, help="repeat the scene into a grid of NxN"
 )
-parser.add_argument("--ckpt", type=str, default=r'/home/cvgluser/Desktop/pyProjects/gsplat/examples/results/pinecone/ckpts/ckpt_6999.pt', help="path to the .pt file")
+parser.add_argument("--ckpt", type=str, default=rf'{os.path.dirname(__file__)}/results/lego/ckpts/ckpt_29999.pt', help="path to the .pt file")
 parser.add_argument("--port", type=int, default=8080, help="port for the viewer server")
 parser.add_argument(
     "--backend", type=str, default="gsplat", help="gsplat, gsplat_legacy, inria"

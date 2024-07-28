@@ -19,8 +19,8 @@ Params = List[tensor]
 epoch = 10
 
 # 初始化非线性最小二乘求解器和梯度下降求解器
-optimizer_nls = Classical_NLS_Solver(max_iter=2000, tolX=1e-4, tolOpt=1e-6, tolFun=1e-4)
-optimizer_gd = Classical_GD_Solver(max_iter=2000, tolX=1e-4, tolOpt=1e-6, tolFun=1e-4)
+optimizer_nls = Classical_NLS_Solver(max_iter=100, tolX=1e-6, tolOpt=1e-8, tolFun=1e-6)
+optimizer_gd = Classical_GD_Solver(max_iter=100, tolX=1e-6, tolOpt=1e-8, tolFun=1e-6)
 
 data = []
 
@@ -84,9 +84,9 @@ def costFunc3_adam_optimize(params: Params, observes: tensor, lr: Optional[float
     plt.show()
 
 
-def costFunc1DGS_adam_optimize(costFactor: CostFactor, lr: Optional[float] = None, max_iterations: int = 2000):
-    observes = torch.tensor(data=cost_factor.obs, requires_grad=True, dtype=torch.float32)
-    params = torch.tensor(data=cost_factor.x, requires_grad=True, dtype=torch.float32)
+def costFunc1DGS_adam_optimize(costFactor: CostFactor, lr: Optional[float] = None, max_iterations: int = 2000, show_process:bool=False):
+    observes = torch.tensor(data=costFactor.obs, requires_grad=True, dtype=torch.float32)
+    params = torch.tensor(data=costFactor.x, requires_grad=True, dtype=torch.float32)
 
     if lr is not None:
         opt = torch.optim.Adam([params], lr=lr)
@@ -98,6 +98,11 @@ def costFunc1DGS_adam_optimize(costFactor: CostFactor, lr: Optional[float] = Non
     panr_history = []
     y_data = torch.zeros_like(input=observes[:, 1])
     gaussian_num = params.reshape(-1, 3)[:, 0].size(0)
+
+    if show_process:
+        plt.figure()
+        plt.ion()
+        plt.show()
     for i in tqdm(range(max_iterations)):
         opt.zero_grad()
 
@@ -107,29 +112,43 @@ def costFunc1DGS_adam_optimize(costFactor: CostFactor, lr: Optional[float] = Non
         weight = params.reshape(-1, 3)[:, 2]
 
         # compute residual
-        y_data = torch.zeros_like(input=observes[:, 1])
+        y_data_list = []
         for i in range(gaussian_num):
-            y_data += (weight[i] /
-                       (variances[i] * math.sqrt(2 * math.pi)) *
-                       torch.exp(-((observes[:, 0] - means[i]) ** 2) /
-                                 (2 * (variances[i]) ** 2)
-                                 )
-                       )
+            y_data_list.append(
+                (weight[i] * torch.exp(-((observes[:, 0] - means[i]) ** 2) /
+                                            (2 * (variances[i]) ** 2)
+                                            )
+                )
+            )
+        y_data_stack = torch.stack(y_data_list, dim=0)
+        y_data = torch.sum(y_data_stack, dim=0)
         residual = observes[:, 1] - y_data
+
+        if show_process:
+            plt.clf()
+            plt.subplot(2, 1, 1)
+            plt.plot(observes[:, 0].detach().numpy(), observes[:, 1].detach().numpy(), label='origin')
+            plt.plot(observes[:, 0].detach().numpy(), y_data.detach().numpy(), label='reconstructed')
+            plt.title('Adam')
+            plt.xlabel('x')
+            plt.legend()
+            plt.subplot(2, 1, 2)
+            for single_y_data in y_data_list:
+                plt.plot(observes[:, 0].detach().numpy(),single_y_data.detach().numpy(), linewidth=0.5)
+            plt.pause(0.5)
 
         _weights = torch.ones(size=(cost_factor.obs_dim,)).repeat(cost_factor.residual_dim)
         loss = 0.5 * torch.sum(torch.square(residual * _weights))
         loss.backward()
         mse = torch.mean((observes[:, 1] - y_data) ** 2)
-        psnr = 20 * torch.log10(max(torch.max(observes[:, 1]).item(), torch.max(y_data).item()) / torch.sqrt(mse))
+        psnr = 10 * torch.log10(torch.max(observes[:, 1]).item()**2 / mse)
         loss_history.append(loss.item())
         panr_history.append(psnr.item())
 
         opt.step()
         scheduler.step()
 
-    fig = plt.figure(figsize=(6, 18), dpi=200)
-
+    fig = plt.figure(figsize=(6, 12), dpi=200)
     plt.subplot(3, 1, 1)
     plt.title('Adam,gaussian_num={:}'.format(gaussian_num))
     plt.plot(loss_history, label='loss')
@@ -152,7 +171,7 @@ def costFunc1DGS_adam_optimize(costFactor: CostFactor, lr: Optional[float] = Non
 
 # 进行多次实验
 for e_i in range(epoch):
-    cost_factor = CostFactor_1DGS(gaussian_num=100, is_great_init=False)
+    cost_factor = CostFactor_1DGS(gaussian_num=50, is_great_init=False)
 
     ## ==================================test on CostFactor_Env3==================================
     # a11, a12, b1 = cost_factor.x[0], cost_factor.x[1], cost_factor.x[2]
@@ -169,19 +188,19 @@ for e_i in range(epoch):
     ## ==================================test on CostFactor_Env3==================================
 
     lr = 5e-1
-    # costFunc1DGS_adam_optimize(cost_factor, max_iterations=1000, lr=lr)
+    costFunc1DGS_adam_optimize(cost_factor, max_iterations=100, lr=lr)
 
     start_time = time.time()
-    optimizer_nls.solve(cost_factor)
+    optimizer_nls.solve(cost_factor, show_process=False)
     end_time = time.time()
     data.append({'Method': 'naive nls', 'Iteration': optimizer_nls.iteration, 'Time': end_time - start_time,
                  'Epoch': f'Epoch {e_i}'})
 
-    start_time = time.time()
-    optimizer_gd.solve(cost_factor)
-    end_time = time.time()
-    data.append({'Method': 'naive gd', 'Iteration': optimizer_gd.iteration, 'Time': end_time - start_time,
-                 'Epoch': f'Epoch {e_i}'})
+    # start_time = time.time()
+    # optimizer_gd.solve(cost_factor, show_process=True)
+    # end_time = time.time()
+    # data.append({'Method': 'naive gd', 'Iteration': optimizer_gd.iteration, 'Time': end_time - start_time,
+    #              'Epoch': f'Epoch {e_i}'})
 
 # 将结果数据转换为 Pandas 数据框
 df = pd.DataFrame(data)

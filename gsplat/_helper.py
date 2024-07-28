@@ -53,3 +53,32 @@ def load_test_data(
     opacities = torch.rand((N,), device=device)
 
     return means, quats, scales, opacities, colors, viewmats, Ks, width, height
+
+import os
+from PIL import Image
+def downsample_image(image_path, factor, output_folder):
+    with Image.open(image_path) as img:
+        new_width = img.width // factor
+        new_height = img.height // factor
+        img_resized = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+        base_name = os.path.basename(image_path)
+        new_image_path = os.path.join(output_folder, base_name)
+        img_resized.save(new_image_path)
+        print(f"Processed {base_name}")
+
+
+def process_images(input_folder, factor):
+    output_folder = f"{input_folder}_{factor}"
+    if not os.path.exists(output_folder):
+        os.makedirs(output_folder)
+
+    for file_name in os.listdir(input_folder):
+        if file_name.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff')):
+            file_path = os.path.join(input_folder, file_name)
+            downsample_image(file_path, factor, output_folder)
+
+
+if __name__ == "__main__":
+    input_folder = r"/home/cvgluser/Downloads/dataset/lego/images"
+    factor = 10
+    process_images(input_folder, factor)

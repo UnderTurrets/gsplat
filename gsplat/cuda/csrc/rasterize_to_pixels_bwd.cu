@@ -202,7 +202,7 @@ __global__ void rasterize_to_pixels_bwd_kernel(
                 // 这部分文档中未给出式子
                 v_alpha += T_final * ra * v_render_a;
 
-                // 若有background，根据loss的公式推算出梯度
+                // 若有background，根据loss的公式推算出background相关梯度
                 // contribution from background pixel
                 if (backgrounds != nullptr) {
                     S accum = 0.f;

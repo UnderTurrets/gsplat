@@ -151,7 +151,7 @@ inline __device__ void persp_proj(
     mat2<T> &cov2d, vec2<T> &mean2d) {
     T x = mean3d_c[0], y = mean3d_c[1], z = mean3d_c[2];
     T rz = 1.f / z;
-    // 与文档不同，没有用P，直接用内参去计算了
+    // 与文档不同，没有用P，直接用内参去计算
     mean2d = vec2<T>({fx * x * rz + cx, fy * y * rz + cy});
 
     T tan_fovx = 0.5f * width / fx;
@@ -159,6 +159,7 @@ inline __device__ void persp_proj(
     T lim_x = 1.3f * tan_fovx;
     T lim_y = 1.3f * tan_fovy;
     T rz2 = rz * rz;
+    // tx,ty限制在正负lim中间
     T tx = z * min(lim_x, max(-lim_x, x * rz));
     T ty = z * min(lim_y, max(-lim_y, y * rz));
     // mat3x2 is 3 columns x 2 rows.
@@ -197,18 +198,17 @@ inline __device__ void persp_proj_vjp(
                             -fx * tx * rz2, -fy * ty * rz2 // 3rd column
     );
 
-    // cov2d = J * V * Jt; G = df/dcov2d = v_cov2d
-    // -> df/dV = Jt * G * J
-    // 与式子（24）不同，这里计算的是: 偏Li/偏SIGMA_c, SIGMA'=J * SIGMA_c * Jt
+    // cov2d = J * cov3d_c * J_T; v_cov2d = dL/dcov2d
+    // -> v_cov3d_c = dL/dcov3d_c = Jt * v_cov2d * J
     v_cov3d_c += glm::transpose(J) * v_cov2d * J;
-    // -> df/dJ = G * J * Vt + Gt * J * V
+    // -> dL/dJ = v_cov2d * J * cov3d_c_T + v_cov2d_T * J * cov3d_c
     mat3x2<T> v_J =
     v_cov2d * J * glm::transpose(cov3d_c) + glm::transpose(v_cov2d) * J * cov3d_c;
 
     // df/dx = fx * rz * df/dpixx
     // df/dy = fy * rz * df/dpixy
     // df/dz = - fx * mean.x * rz2 * df/dpixx - fy * mean.y * rz2 * df/dpixy
-    // 式子（23） 但计算方式不同
+    // 式子（23） 但没有用P阵计算，而是直接根据内参定义求导
     v_mean3d_c += vec3<T>(fx * rz * v_mean2d[0], fy * rz * v_mean2d[1],
                         -(fx * x * v_mean2d[0] + fy * y * v_mean2d[1]) * rz2);
 

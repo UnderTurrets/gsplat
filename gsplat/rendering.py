@@ -416,6 +416,7 @@ def _rasterization(
     height: int,
     near_plane: float = 0.01,
     far_plane: float = 1e10,
+    radius_clip : Optional[float] = 0,
     eps2d: float = 0.3,
     sh_degree: Optional[int] = None,
     tile_size: int = 16,

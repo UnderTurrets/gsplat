@@ -44,8 +44,10 @@ __global__ void isect_tiles(
     if (idx >= (packed ? nnz : C * N)) {
         return;
     }
-    
+
+    // 拿到这个gaussian的半径
     const OpT radius = radii[idx];
+    // 半径小于等于0则表示非有效的gaussian
     if (radius <= 0) {
         if (first_pass) {
             tiles_per_gauss[idx] = 0;
@@ -68,8 +70,8 @@ __global__ void isect_tiles(
     tile_max.x = min(max(0, (uint32_t)ceil(tile_x + tile_radius)), tile_width);
     tile_max.y = min(max(0, (uint32_t)ceil(tile_y + tile_radius)), tile_height);
 
+    // first pass only writes out tiles_per_gauss
     if (first_pass) {
-        // first pass only writes out tiles_per_gauss
         // 记录这个gaussian覆盖的网格数量
         tiles_per_gauss[idx] =
             static_cast<int32_t>((tile_max.y - tile_min.y) * (tile_max.x - tile_min.x));

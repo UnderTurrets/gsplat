@@ -4,8 +4,8 @@ import random
 from Environment.Base import CostFactor
 import torch
 import math
-
-
+from typing import List, Tuple
+from numpy import ndarray
 # a * exp(b * x)
 class CostFactor_Env1(CostFactor):
     def __init__(self, is_initialized=False, x_gt=None, x=None, obs=None, is_numerical=False):
@@ -226,11 +226,15 @@ class CostFactor_1DGS(CostFactor):
                 ## 计算移动平均值
                 target = target.rolling(window=window_size).mean()
                 # 用前一个有效值填充 NaN
-                target = target.fillna(method='bfill')
+                target = target.bfill()
                 target = numpy.array(target.values)
+                # normalize
+                # target = (target - min(target)) / (max(target)-min(target))
+
                 self.obs_dim = len(target)
                 x_data = np.linspace(start=0, stop=len(target) - 1, num=self.obs_dim)
 
+                ## create target with some usual functions
                 # x_data = np.linspace(start=0, stop=10 * np.pi, num=self.obs_dim)
                 # # target = np.sin(x_data) + 10
                 # target = np.polyval([0.01, -3, 2, 0], x=x_data) +10
@@ -241,15 +245,14 @@ class CostFactor_1DGS(CostFactor):
                 self.obs[:, 1] = target
 
                 ## get the parameters
-                means = np.random.randint(low=0, high=self.obs_dim, size=self.gaussian_num).astype(float)
-                variances = np.random.randint(low=1, high=self.obs_dim, size=self.gaussian_num).astype(float)
-                opacity = np.random.randn(self.gaussian_num) * abs(target.max())
+                means, variances, opacity = self.init_parameters()
 
+                # context:[mean1,var1,opacity1,mean2,var2,opacity2,...]
+                # shape:(3*N,)
                 self.x_gt = None
                 self.x = np.stack((means, variances, opacity), axis=0).T.reshape(-1)
 
-
-
+            ## show data
             # import matplotlib.pyplot as plt
             # plt.plot(self.obs[:, 0], self.obs[:, 1])
             # plt.show()
@@ -257,11 +260,20 @@ class CostFactor_1DGS(CostFactor):
 
             super().__init__(is_numerical, self.x_gt, self.x, self.obs, 1)
 
-    def reset(self):
-        means = np.random.randint(low=0, high=self.obs_dim, size=self.gaussian_num).astype(float)
-        variances = np.random.randint(low=1, high=self.obs_dim, size=self.gaussian_num).astype(float)
-        opacity = np.random.randn(self.gaussian_num)
-        opacity = opacity / opacity.sum()
+    def init_parameters(self) -> Tuple:
+        means = np.linspace(start=min(self.obs[:, 0]), stop=max(self.obs[:, 0]), num=self.gaussian_num)
+        variances = numpy.random.rand(self.gaussian_num) * len(self.obs[:, 0])/(3 * self.gaussian_num)
+        opacity = np.random.rand(self.gaussian_num)
+        return means, variances, opacity
+
+    def reset_single_gaussian(self, gaussian_id:int) -> None:
+        # context:[mean1,var1,opacity1,mean2,var2,opacity2,...]
+        self.x[3 * gaussian_id] = random.randrange(start=int(min(self.obs[:, 0])), stop=int(max(self.obs[:, 0])))
+        self.x[3 * gaussian_id + 1] = random.random() * len(self.obs[:, 0])/(3 * self.gaussian_num)
+        self.x[3 * gaussian_id + 2] = random.random()
+
+    def reset(self)-> None:
+        means, variances, opacity = self.init_parameters()
 
         # context:[mean1,var1,opacity1,mean2,var2,opacity2,...]
         # shape:(3*N,)
@@ -272,6 +284,7 @@ class CostFactor_1DGS(CostFactor):
         variances_noise = variances + variances * np.random.randn(variances.size) / 5
         variances_noise = numpy.clip(a=variances_noise, a_min=0.01, a_max=None)
         opacity_noise = opacity + opacity * np.random.randn(opacity.size) / 5
+        opacity_noise = numpy.clip(a=opacity_noise, a_min=0.01, a_max=None)
         self.x = np.stack((means_noise, variances_noise, opacity_noise), axis=0).T.reshape(-1)
 
         # generate data
@@ -279,52 +292,76 @@ class CostFactor_1DGS(CostFactor):
         self.obs[:, 0] = np.linspace(start=0, stop=self.obs_dim - 1, num=self.obs_dim)
         self.obs[:, 1] = self.reconstructed_signal()
 
-    def residual_factor(self):
+    def residual_factor(self) -> ndarray:
         # Compute the residuals between observed data and the model's predictions.
         return self.obs[:, 1] - self.reconstructed_signal()
 
-    def jacobian_factor(self):
+    def jacobian_factor(self) -> ndarray:
         # Compute the Jacobian matrix for the model.
-        J = np.zeros((self.obs_dim, 3 * self.gaussian_num))
+        J = np.zeros(shape=(self.obs_dim, 3 * self.gaussian_num))
         for i in range(self.gaussian_num):
-            J[:, 3 * i] = (
-                    (self.x[3 * i] - self.obs[:, 0]) * self.x[3 * i + 2] /
-                    (self.x[3 * i + 1] ** 3 * math.sqrt(2 * math.pi)) *
+            if (self.x[3 * i + 1] <= 0 or self.x[3 * i + 1] >= len(self.obs[:, 0])/2 or self.x[3 * i + 2] <= 0):self.reset_single_gaussian(i)
+            J[:, 3 * i] = -(
+                    self.x[3 * i + 2] * (self.obs[:, 0] - self.x[3 * i]) / (self.x[3 * i + 1] ** 2) *
                     numpy.exp(-((self.obs[:, 0] - self.x[3 * i]) ** 2) / (2 * (self.x[3 * i + 1]) ** 2))
             )
             J[:, 3 * i + 1] = -(
-                    self.x[3 * i + 2] * (self.obs[:, 0] - self.x[3 * i] + self.x[3 * i + 1]) * (
-                    self.obs[:, 0] - self.x[3 * i] - self.x[3 * i + 1]) /
-                    (self.x[3 * i + 1] ** 4 * math.sqrt(2 * math.pi)) *
+                    self.x[3 * i + 2] * ((self.obs[:, 0] - self.x[3 * i])**2) / (self.x[3 * i + 1] ** 3) *
                     numpy.exp(-((self.obs[:, 0] - self.x[3 * i]) ** 2) / (2 * (self.x[3 * i + 1]) ** 2))
             )
-            J[:, 3 * i + 2] = -(1 /
-                                (self.x[3 * i + 1] * math.sqrt(2 * math.pi)) *
-                                numpy.exp(
+            J[:, 3 * i + 2] = -numpy.exp(
                                     -((self.obs[:, 0] - self.x[3 * i]) ** 2) /
                                     (2 * (self.x[3 * i + 1]) ** 2)
                                 )
-                                )
         return J
 
-    def reconstructed_signal(self):
+    def update(self)->None:
+        self._residual = self.residual_factor()
+        # 使用数值化雅可比矩阵
+        if self.numerical_J:
+            self._jacobian = np.zeros(shape=(self.obs_dim, 3 * self.gaussian_num))
+            for i in range(self.gaussian_num):
+                if (self.x[3 * i + 1] <= 0 or self.x[3 * i + 1] >= len(self.obs[:, 0])/2 or self.x[3 * i + 2] <= 0):self.reset_single_gaussian(i)
+                for j in range(0, 3):
+                    self.x[3 * i + j] -= 1e-5
+                    residual_1 = self.residual_factor().reshape(-1)
+                    self.x[3 * i + j] += 2e-5
+                    residual_2 = self.residual_factor().reshape(-1)
+                    self.x[3 * i + j] -= 1e-5
+                    self._jacobian[:, 3 * i + j] = (residual_2 - residual_1) / 2e-5
+        else:
+            self._jacobian = self.jacobian_factor()
+
+    def reconstructed_signal(self)->ndarray:
         means = self.x.reshape(-1, 3)[:, 0]
         variances = self.x.reshape(-1, 3)[:, 1]
         opacity = self.x.reshape(-1, 3)[:, 2]
         y_data = numpy.zeros(self.obs_dim)
         for i in range(self.gaussian_num):
-            y_data += (opacity[i] /
-                       (variances[i] * math.sqrt(2 * math.pi)) *
+            y_data += (opacity[i] *
                        numpy.exp(-((self.obs[:, 0] - means[i]) ** 2) /
                                  (2 * (variances[i]) ** 2)
                                  )
                        )
         return y_data
 
-    def calculate_psnr(self):
+    def reconstructed_disperse(self)->List:
+        means = self.x.reshape(-1, 3)[:, 0]
+        variances = self.x.reshape(-1, 3)[:, 1]
+        opacity = self.x.reshape(-1, 3)[:, 2]
+        y_data_list = []
+        for i in range(self.gaussian_num):
+            y_data_list.append(
+                 opacity[i] *
+                 numpy.exp(-((self.obs[:, 0] - means[i]) ** 2) /
+                           (2 * (variances[i]) ** 2)
+                           )
+            )
+        return y_data_list
+
+    def calculate_psnr(self)->float:
         mse = numpy.mean((self.obs[:, 1] - self.reconstructed_signal()) ** 2)
-        return 20 * numpy.log10(
-            max(numpy.max(self.obs[:, 1]), numpy.max(self.reconstructed_signal())) / numpy.sqrt(mse))
+        return 10 * numpy.log10(numpy.max(abs(self.obs[:, 1]))**2 / mse)
 
 
 if __name__ == '__main__':
