@@ -8,9 +8,9 @@ from Environment.Base import CostFactor, SolverFactor
 # 非线性最小二乘法（NLS）求解器类
 class Classical_NLS_Solver(SolverFactor):
     def __init__(self, optimizer_type="LM", max_iter=2000, tolX=1e-5, tolOpt=1e-6, tolFun=1e-5):
-        super().__init__(optimizer_type, max_iter=max_iter, tolX=tolX, tolOpt=tolOpt, tolFun=tolFun)  # 调用父类的初始化方法，设置优化器类型
-        self.tou = 1e-0
-        self.epsilon = 1e-8
+        super().__init__(optimizer_type, max_iter=max_iter, tolX=tolX, tolOpt=tolOpt, tolFun=tolFun)
+        self.tou = 1e-1
+        self.epsilon = 1e-5
         self.iteration = 0  # 初始化迭代次数
 
     def solve(self, cost_factor: CostFactor, weights=None, show_process: bool = False):
@@ -25,48 +25,50 @@ class Classical_NLS_Solver(SolverFactor):
         loss_history = []
         miu_history = []
         nu_history = []
+        varrho_history = []
         iteration_speed_history = []
         # for 1DGS
         psnr_history = []
 
         def draw():
-            plt.figure()
-            plt.title(f'LM,nu={nu:.2e},tolX={self.tolX:.2e},'
-                      f'tolOpt={self.tolOpt:.2e}, tolFun={self.tolFun:.2e}')
+            fig = plt.figure(figsize=(6, 10))
+            plt.subplot(2, 1, 1)
+            plt.title(f'LM')
+            plt.plot(miu_history, label='miu')
+            plt.plot(nu_history, label='nu')
+            plt.plot(varrho_history, label='varrho')
+            plt.legend()
+            plt.subplot(2, 1, 2)
             plt.plot(loss_history, label='loss')
+            plt.title(f"tolX={self.tolX:.2e}, tolOpt={self.tolOpt:.2e}, \n"
+                      f"tolFun={self.tolFun:.2e}")
+            plt.legend()
             plt.xlabel('iteration')
             plt.show()
 
         def draw_1DGS():
             fig = plt.figure(figsize=(6, 20))
-            plt.subplot(5, 1, 1)
+            plt.subplot(4, 1, 1)
             plt.plot(miu_history, label='miu')
-            plt.title(f'LM,nu={nu:.3e},\n'
-                      f'gaussian_num={cost_factor.gaussian_num:}')
-            plt.legend()
-
-            plt.subplot(5, 1, 2)
             plt.plot(nu_history, label='nu')
+            plt.plot(varrho_history,label='varrho')
+            plt.title(f'LM,gaussian_num={cost_factor.gaussian_num:}')
             plt.legend()
-
-            plt.subplot(5, 1, 3)
+            plt.subplot(4, 1, 2)
             plt.plot(loss_history, label='loss')
             plt.title(f"tolX={self.tolX:.2e}, tolOpt={self.tolOpt:.2e}, \n"
                       f"tolFun={self.tolFun:.2e}")
             plt.legend()
-
             # for 1DGS
-            plt.subplot(5, 1, 4)
+            plt.subplot(4, 1, 3)
             plt.plot(psnr_history, label='psnr')
             plt.legend()
             plt.xlabel('iteration')
-
-            plt.subplot(5, 1, 5)
+            plt.subplot(4, 1, 4)
             plt.plot(cost_factor.obs[:, 0], cost_factor.obs[:, 1], label='origin')
             plt.plot(cost_factor.obs[:, 0], cost_factor.reconstructed_signal(), label='reconstructed')
             plt.xlabel('x')
             plt.legend()
-
             fig.tight_layout()
 
         if show_process:
@@ -80,23 +82,6 @@ class Classical_NLS_Solver(SolverFactor):
             nu_history.append(nu)
             # for 1DGS
             psnr_history.append(cost_factor.calculate_psnr())
-
-            if show_process:
-                plt.clf()
-                plt.subplot(3, 1, 1)
-                plt.title(f'LM')
-                plt.plot(cost_factor.obs[:, 0], cost_factor.obs[:, 1], label='origin')
-                plt.plot(cost_factor.obs[:, 0], cost_factor.reconstructed_signal(), label='reconstructed')
-                plt.xlabel('x')
-                plt.legend()
-                plt.subplot(3, 1, 2)
-                for y_data in cost_factor.reconstructed_disperse():
-                    plt.plot(cost_factor.obs[:, 0], y_data, linewidth=0.5)
-                plt.subplot(3, 1, 3)
-                plt.plot(miu_history, label="miu")
-                plt.plot(nu_history, label="nu")
-                plt.legend()
-                plt.pause(0.5)
 
             ## ============================================test on torch.autograd.grad======================================================
             # from .LMoptimizer import LevenbergMarquardt
@@ -155,21 +140,13 @@ class Classical_NLS_Solver(SolverFactor):
 
             # 计算更新步长
             update = - np.linalg.inv(hessian + miu * numpy.eye(cost_factor.x_dim)) @ gradient
+            if np.linalg.norm(update) < self.epsilon * (np.linalg.norm(cost_factor.x) + self.epsilon):
+                print('update is low so stop')
+                break
 
             # 创建参数更新后的假设因子
             cost_factor_hypothesis = copy.deepcopy(cost_factor)
             cost_factor_hypothesis.step(update)
-
-            # 检查停止条件
-            if np.linalg.norm(gradient, ord=np.inf) < self.tolOpt:
-                print('grad is low so stop')
-                break
-            if np.linalg.norm(update) < self.epsilon * (np.linalg.norm(cost_factor.x)+self.epsilon):
-                print('update is low so stop')
-                break
-            if abs(cost_factor_hypothesis.error(weights) - cost_factor.error(weights)) < self.tolFun * max(1, abs(cost_factor.error(weights))):
-                print('error is low so stop')
-                break
 
             # 计算误差比率
             varrho = (
@@ -177,23 +154,63 @@ class Classical_NLS_Solver(SolverFactor):
                      (0.5 * np.array(update).T @ (miu * np.array(update)-cost_factor.gradient(weights)))
             )
 
+            # varrho = (cost_factor_hypothesis.error(weights) - cost_factor.error(weights)) / (
+            #         np.array(update).T @ cost_factor_hypothesis.gradient(weights))
+            # other check
+            if np.linalg.norm(gradient, ord=np.inf) < self.tolOpt:
+                print('grad is low so stop')
+                break
+            if np.linalg.norm(update) < self.tolX * max(1, np.linalg.norm(cost_factor.x)):
+                print('update is low so stop')
+                break
+            if abs(cost_factor_hypothesis.error(weights) - cost_factor.error(weights)) < self.tolFun * max(1, abs(cost_factor.error(weights))):
+                print('error is low so stop')
+                break
+
+            varrho_history.append(varrho)
+
+            if show_process:
+                plt.clf()
+                plt.subplot(4, 1, 1)
+                plt.title(f'LM')
+                plt.plot(cost_factor.obs[:, 0], cost_factor.obs[:, 1], label='origin')
+                plt.plot(cost_factor.obs[:, 0], cost_factor.reconstructed_signal(), label='reconstructed')
+                plt.xlabel('x')
+                plt.legend()
+                plt.subplot(4, 1, 2)
+                for y_data in cost_factor.reconstructed_disperse():
+                    plt.plot(cost_factor.obs[:, 0], y_data, linewidth=0.5)
+                plt.subplot(4, 1, 3)
+                plt.plot(miu_history, label="miu")
+                plt.plot(nu_history, label="nu")
+                plt.plot(varrho_history, label="varrho")
+                plt.legend()
+                plt.subplot(4, 1, 4)
+                plt.plot(loss_history,label="loss")
+                plt.legend()
+                plt.xlabel("iteration")
+                plt.pause(0.5)
+
             # 根据误差比率调整参数
             if varrho > 0:
                 cost_factor = copy.deepcopy(cost_factor_hypothesis)
                 hessian = cost_factor.hessian(weights)
                 gradient = cost_factor.gradient(weights)
+                if (numpy.linalg.norm(cost_factor.gradient(weights), ord=np.inf) <= self.epsilon):break
                 miu = miu * max(1 / 3, 1 - (2 * varrho - 1) ** 3)
                 nu = 2
             else:
                 miu = miu * nu
                 nu = nu * 2
-
             desc = f"LM | iteration:{iterations}"
             pbar.set_description(desc)
             if pbar.format_dict["rate"] is not None:
                 iteration_speed_history.append(pbar.format_dict["rate"])
         draw_1DGS()
-        return cost_factor, numpy.array(iteration_speed_history).mean()
+        if len(iteration_speed_history)!=0:
+            return cost_factor, numpy.array(iteration_speed_history).mean()
+        else:
+            return cost_factor, []
 
 
 # 梯度下降（GD）求解器类
@@ -287,7 +304,10 @@ class Classical_GD_Solver(SolverFactor):
                 iteration_speed_history.append(pbar.format_dict["rate"])
 
         draw_1DGS()
-        return cost_factor, numpy.array(iteration_speed_history).mean()
+        if len(iteration_speed_history) != 0:
+            return cost_factor, numpy.array(iteration_speed_history).mean()
+        else:
+            return cost_factor, []
 
 
 from Environment.CostFactor import CostFactor_Env1, CostFactor_Env2, CostFactor_Env3, CostFactor_Env4

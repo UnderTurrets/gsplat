@@ -19,7 +19,7 @@ Params = List[tensor]
 epoch = 10
 
 # 初始化非线性最小二乘求解器和梯度下降求解器
-optimizer_nls = Classical_NLS_Solver(max_iter=100, tolX=1e-6, tolOpt=1e-8, tolFun=1e-6)
+optimizer_nls = Classical_NLS_Solver(max_iter=100, tolX=1e-4, tolOpt=1e-6, tolFun=1e-4)
 optimizer_gd = Classical_GD_Solver(max_iter=100, tolX=1e-6, tolOpt=1e-8, tolFun=1e-6)
 
 data = []
@@ -187,11 +187,11 @@ for e_i in range(epoch):
     # adam_optimize(params=[param1_adam, param2_adam], observes = obs, max_iterations=500)
     ## ==================================test on CostFactor_Env3==================================
 
-    lr = 5e-1
-    costFunc1DGS_adam_optimize(cost_factor, max_iterations=100, lr=lr)
+    # lr = 5e-1
+    # costFunc1DGS_adam_optimize(cost_factor, max_iterations=100, lr=lr)
 
     start_time = time.time()
-    optimizer_nls.solve(cost_factor, show_process=False)
+    optimizer_nls.solve(cost_factor, show_process=True)
     end_time = time.time()
     data.append({'Method': 'naive nls', 'Iteration': optimizer_nls.iteration, 'Time': end_time - start_time,
                  'Epoch': f'Epoch {e_i}'})

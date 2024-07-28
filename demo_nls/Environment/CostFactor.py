@@ -1,3 +1,4 @@
+import os.path
 import numpy
 import numpy as np
 import random
@@ -6,6 +7,9 @@ import torch
 import math
 from typing import List, Tuple
 from numpy import ndarray
+from sklearn.neighbors import NearestNeighbors
+
+
 # a * exp(b * x)
 class CostFactor_Env1(CostFactor):
     def __init__(self, is_initialized=False, x_gt=None, x=None, obs=None, is_numerical=False):
@@ -217,33 +221,35 @@ class CostFactor_1DGS(CostFactor):
                 ## random initialization is not so good
                 self.reset()
             else:
+                ## ============================create target by file============================
                 import pandas as pd
                 target = pd.read_csv(
-                    r"/home/cvgluser/Desktop/pyProjects/gsplat/demo_nls/Introduction-to-Gaussian-Splatting/DailyDelhiClimateTest.csv")[
+                    rf"{os.path.dirname(__file__)}/../Introduction-to-Gaussian-Splatting/DailyDelhiClimateTest.csv")[
                     'meantemp']
                 ## 设置移动平均窗口大小
-                window_size = 10
+                window_size = 8
                 ## 计算移动平均值
                 target = target.rolling(window=window_size).mean()
                 # 用前一个有效值填充 NaN
                 target = target.bfill()
                 target = numpy.array(target.values)
-                # normalize
-                # target = (target - min(target)) / (max(target)-min(target))
-
                 self.obs_dim = len(target)
                 x_data = np.linspace(start=0, stop=len(target) - 1, num=self.obs_dim)
+                ## ============================create target by file============================
 
-                ## create target with some usual functions
+                ## ============================create target with some usual functions============================
                 # x_data = np.linspace(start=0, stop=10 * np.pi, num=self.obs_dim)
-                # # target = np.sin(x_data) + 10
-                # target = np.polyval([0.01, -3, 2, 0], x=x_data) +10
+                # target = np.sin(x_data) + 10
+                # # target = np.polyval([0.01, -3, 2, 0], x=x_data) +10
                 # target += np.random.normal(loc=0, scale=0.005, size=len(target))  # 添加一些噪声
+                ## ============================create target with some usual functions============================
+
+                # normalize
+                target = (target - min(target)) / (max(target)-min(target))
 
                 self.obs = np.zeros([self.obs_dim, 2])
                 self.obs[:, 0] = x_data
                 self.obs[:, 1] = target
-
                 ## get the parameters
                 means, variances, opacity = self.init_parameters()
 
@@ -262,19 +268,25 @@ class CostFactor_1DGS(CostFactor):
 
     def init_parameters(self) -> Tuple:
         means = np.linspace(start=min(self.obs[:, 0]), stop=max(self.obs[:, 0]), num=self.gaussian_num)
-        variances = numpy.random.rand(self.gaussian_num) * len(self.obs[:, 0])/(3 * self.gaussian_num)
-        opacity = np.random.rand(self.gaussian_num)
+        # means = np.random.randint(low=min(self.obs[:, 0]), high=max(self.obs[:, 0]), size=(self.gaussian_num,))
+        # 使用 NearestNeighbors 找到每个 mean 最近的 3 个 mean
+        nbrs = NearestNeighbors(n_neighbors=4, algorithm='auto').fit(means.reshape(-1, 1))
+        distances, indices = nbrs.kneighbors(means.reshape(-1, 1))
+        # 计算每个 mean 最近的 3 个 mean 的均方根距离的平均值，忽略自身的距离
+        variances = np.sqrt(np.mean(distances[:, 1:] ** 2, axis=1))
+        opacity = np.full(shape=(self.gaussian_num,), fill_value=max(self.obs[:, 1])*0.1)
         return means, variances, opacity
 
     def reset_single_gaussian(self, gaussian_id:int) -> None:
         # context:[mean1,var1,opacity1,mean2,var2,opacity2,...]
         self.x[3 * gaussian_id] = random.randrange(start=int(min(self.obs[:, 0])), stop=int(max(self.obs[:, 0])))
-        self.x[3 * gaussian_id + 1] = random.random() * len(self.obs[:, 0])/(3 * self.gaussian_num)
-        self.x[3 * gaussian_id + 2] = random.random()
+        means = self.x.reshape(-1, 3)[:, 0]
+        distance_sorted = numpy.sort(numpy.square(means - self.x[3 * gaussian_id]))
+        self.x[3 * gaussian_id + 1] = numpy.sqrt(distance_sorted[1:4].mean())
+        self.x[3 * gaussian_id + 2] = max(self.obs[:, 1]) * 0.1
 
     def reset(self)-> None:
         means, variances, opacity = self.init_parameters()
-
         # context:[mean1,var1,opacity1,mean2,var2,opacity2,...]
         # shape:(3*N,)
         self.x_gt = np.stack((means, variances, opacity), axis=0).T.reshape(-1)
@@ -300,7 +312,12 @@ class CostFactor_1DGS(CostFactor):
         # Compute the Jacobian matrix for the model.
         J = np.zeros(shape=(self.obs_dim, 3 * self.gaussian_num))
         for i in range(self.gaussian_num):
-            if (self.x[3 * i + 1] <= 0 or self.x[3 * i + 1] >= len(self.obs[:, 0])/2 or self.x[3 * i + 2] <= 0):self.reset_single_gaussian(i)
+            if (self.x[3 * i + 1] <= 0
+                or self.x[3 * i + 1] >= len(self.obs[:, 0])/2
+                or self.x[3 * i + 2] <= 0
+                or self.x[3 * i + 2] >= 1
+            ):
+                self.reset_single_gaussian(i)
             J[:, 3 * i] = -(
                     self.x[3 * i + 2] * (self.obs[:, 0] - self.x[3 * i]) / (self.x[3 * i + 1] ** 2) *
                     numpy.exp(-((self.obs[:, 0] - self.x[3 * i]) ** 2) / (2 * (self.x[3 * i + 1]) ** 2))
@@ -321,7 +338,12 @@ class CostFactor_1DGS(CostFactor):
         if self.numerical_J:
             self._jacobian = np.zeros(shape=(self.obs_dim, 3 * self.gaussian_num))
             for i in range(self.gaussian_num):
-                if (self.x[3 * i + 1] <= 0 or self.x[3 * i + 1] >= len(self.obs[:, 0])/2 or self.x[3 * i + 2] <= 0):self.reset_single_gaussian(i)
+                if (self.x[3 * i + 1] <= 0
+                        or self.x[3 * i + 1] >= len(self.obs[:, 0]) / 2
+                        or self.x[3 * i + 2] <= 0
+                        or self.x[3 * i + 2] >= 1
+                ):
+                    self.reset_single_gaussian(i)
                 for j in range(0, 3):
                     self.x[3 * i + j] -= 1e-5
                     residual_1 = self.residual_factor().reshape(-1)

@@ -179,6 +179,7 @@ def create_splats_with_optimizers(
     N = points.shape[0]
     # Initialize the GS size to be the average dist of the 3 nearest neighbors
     # 通过scikit库的knn近邻算法选出距离自己最近的三个点并平方，在最后一个维度取平均 [N,3]->[N,]
+    # 均方根距离平均
     dist2_avg = (knn(points, 4)[:, 1:] ** 2).mean(dim=-1)  # [N,]
     dist_avg = torch.sqrt(dist2_avg)
     # 基于近邻距离取对数值初始化，并复制成3个相同的值，后续再exp运算
