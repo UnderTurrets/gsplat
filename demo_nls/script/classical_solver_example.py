@@ -19,7 +19,7 @@ Params = List[tensor]
 epoch = 10
 
 # 初始化非线性最小二乘求解器和梯度下降求解器
-optimizer_nls = Classical_NLS_Solver(max_iter=100, tolX=1e-4, tolOpt=1e-6, tolFun=1e-4)
+optimizer_nls = Classical_NLS_Solver()
 optimizer_gd = Classical_GD_Solver(max_iter=100, tolX=1e-6, tolOpt=1e-8, tolFun=1e-6)
 
 data = []
@@ -171,7 +171,7 @@ def costFunc1DGS_adam_optimize(costFactor: CostFactor, lr: Optional[float] = Non
 
 # 进行多次实验
 for e_i in range(epoch):
-    cost_factor = CostFactor_1DGS(gaussian_num=50, is_great_init=False)
+    cost_factor = CostFactor_1DGS(gaussian_num=50, is_great_init=False, is_numerical=True)
 
     ## ==================================test on CostFactor_Env3==================================
     # a11, a12, b1 = cost_factor.x[0], cost_factor.x[1], cost_factor.x[2]

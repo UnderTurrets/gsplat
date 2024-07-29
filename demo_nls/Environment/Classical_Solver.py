@@ -7,10 +7,10 @@ from Environment.Base import CostFactor, SolverFactor
 
 # 非线性最小二乘法（NLS）求解器类
 class Classical_NLS_Solver(SolverFactor):
-    def __init__(self, optimizer_type="LM", max_iter=2000, tolX=1e-5, tolOpt=1e-6, tolFun=1e-5):
+    def __init__(self, optimizer_type="LM", max_iter=2000, tolX=1e-3, tolOpt=1e-5, tolFun=1e-3):
         super().__init__(optimizer_type, max_iter=max_iter, tolX=tolX, tolOpt=tolOpt, tolFun=tolFun)
-        self.tou = 1e-1
-        self.epsilon = 1e-5
+        self.tou = 1e-2
+        self.epsilon = 1e-8
         self.iteration = 0  # 初始化迭代次数
 
     def solve(self, cost_factor: CostFactor, weights=None, show_process: bool = False):
@@ -148,27 +148,27 @@ class Classical_NLS_Solver(SolverFactor):
             cost_factor_hypothesis = copy.deepcopy(cost_factor)
             cost_factor_hypothesis.step(update)
 
-            # 计算误差比率
+            ## 计算误差比率
             varrho = (
                      (cost_factor.error(weights)) - cost_factor_hypothesis.error(weights)  /
                      (0.5 * np.array(update).T @ (miu * np.array(update)-cost_factor.gradient(weights)))
             )
 
+            ## If use this method, other check shoule be added or iterations will stop slowly.
             # varrho = (cost_factor_hypothesis.error(weights) - cost_factor.error(weights)) / (
             #         np.array(update).T @ cost_factor_hypothesis.gradient(weights))
-            # other check
-            if np.linalg.norm(gradient, ord=np.inf) < self.tolOpt:
-                print('grad is low so stop')
-                break
-            if np.linalg.norm(update) < self.tolX * max(1, np.linalg.norm(cost_factor.x)):
-                print('update is low so stop')
-                break
-            if abs(cost_factor_hypothesis.error(weights) - cost_factor.error(weights)) < self.tolFun * max(1, abs(cost_factor.error(weights))):
-                print('error is low so stop')
-                break
+            ## other check
+            # if np.linalg.norm(gradient, ord=np.inf) < self.tolOpt:
+            #     print('grad is low so stop')
+            #     break
+            # if np.linalg.norm(update) < self.tolX * max(1, np.linalg.norm(cost_factor.x)):
+            #     print('update is low so stop')
+            #     break
+            # if abs(cost_factor_hypothesis.error(weights) - cost_factor.error(weights)) < self.tolFun * max(1, abs(cost_factor.error(weights))):
+            #     print('error is low so stop')
+            #     break
 
             varrho_history.append(varrho)
-
             if show_process:
                 plt.clf()
                 plt.subplot(4, 1, 1)
@@ -189,7 +189,7 @@ class Classical_NLS_Solver(SolverFactor):
                 plt.plot(loss_history,label="loss")
                 plt.legend()
                 plt.xlabel("iteration")
-                plt.pause(0.5)
+                plt.pause(0.25)
 
             # 根据误差比率调整参数
             if varrho > 0:
@@ -206,6 +206,7 @@ class Classical_NLS_Solver(SolverFactor):
             pbar.set_description(desc)
             if pbar.format_dict["rate"] is not None:
                 iteration_speed_history.append(pbar.format_dict["rate"])
+
         draw_1DGS()
         if len(iteration_speed_history)!=0:
             return cost_factor, numpy.array(iteration_speed_history).mean()

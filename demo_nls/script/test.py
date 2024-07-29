@@ -21,28 +21,40 @@ def plot_gaussian(mu, cov, ax, color='blue'):
                   edgecolor=color, fc='None', lw=2)
     ax.add_patch(ell)
 
-mu = [0, 0]
+# mu = [0, 0]
+#
+# # 定义不同的协方差矩阵
+# covariances = {
+#     '1': [[1, 0], [0, 1]],
+#     '2': [[1, 0.8], [0.8, 1]],
+#     '3': [[1, -0.8], [-0.8, 1]],
+#     '4': [[2, 0], [0, 0.5]]
+# }
+#
+# fig, axes = plt.subplots(2, 2, figsize=(12, 12))
+#
+# for ax, (title, cov) in zip(axes.flatten(), covariances.items()):
+#     plot_gaussian(mu, cov, ax)
+#     ax.set_xlim(-3, 3)
+#     ax.set_ylim(-3, 3)
+#     ax.set_title(title)
+#     ax.set_xlabel('$X_1$')
+#     ax.set_ylabel('$X_2$')
+#     ax.grid(True)
+#
+# plt.tight_layout()
+# plt.show()
 
-# 定义不同的协方差矩阵
-covariances = {
-    '1': [[1, 0], [0, 1]],
-    '2': [[1, 0.8], [0.8, 1]],
-    '3': [[1, -0.8], [-0.8, 1]],
-    '4': [[2, 0], [0, 0.5]]
-}
+import torch
 
-fig, axes = plt.subplots(2, 2, figsize=(12, 12))
+pixels = torch.tensor([[[1, 2, 2], [3, 4,4]],
+                       [[5, 6,6], [7, 8,8]]],
+                      )
+colors = torch.zeros_like(pixels)  # 这里只是一个示例，假设 colors 全为 0
 
-for ax, (title, cov) in zip(axes.flatten(), covariances.items()):
-    plot_gaussian(mu, cov, ax)
-    ax.set_xlim(-3, 3)
-    ax.set_ylim(-3, 3)
-    ax.set_title(title)
-    ax.set_xlabel('$X_1$')
-    ax.set_ylabel('$X_2$')
-    ax.grid(True)
+# 计算残差
+residual = (pixels - colors).flatten()
 
-plt.tight_layout()
-plt.show()
-
+print(residual)
+print(pixels.shape)
 

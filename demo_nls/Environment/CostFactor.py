@@ -244,7 +244,7 @@ class CostFactor_1DGS(CostFactor):
                 # target += np.random.normal(loc=0, scale=0.005, size=len(target))  # 添加一些噪声
                 ## ============================create target with some usual functions============================
 
-                # normalize
+                ## normalize
                 target = (target - min(target)) / (max(target)-min(target))
 
                 self.obs = np.zeros([self.obs_dim, 2])
@@ -312,12 +312,14 @@ class CostFactor_1DGS(CostFactor):
         # Compute the Jacobian matrix for the model.
         J = np.zeros(shape=(self.obs_dim, 3 * self.gaussian_num))
         for i in range(self.gaussian_num):
-            if (self.x[3 * i + 1] <= 0
+            if (
+                ## variance is too low or too high
+                self.x[3 * i + 1] <= 0
                 or self.x[3 * i + 1] >= len(self.obs[:, 0])/2
+                ## opacity is too low or too high
                 or self.x[3 * i + 2] <= 0
-                or self.x[3 * i + 2] >= 1
-            ):
-                self.reset_single_gaussian(i)
+                or self.x[3 * i + 2] >= max(self.obs[:, 1])
+            ):continue
             J[:, 3 * i] = -(
                     self.x[3 * i + 2] * (self.obs[:, 0] - self.x[3 * i]) / (self.x[3 * i + 1] ** 2) *
                     numpy.exp(-((self.obs[:, 0] - self.x[3 * i]) ** 2) / (2 * (self.x[3 * i + 1]) ** 2))
@@ -341,9 +343,8 @@ class CostFactor_1DGS(CostFactor):
                 if (self.x[3 * i + 1] <= 0
                         or self.x[3 * i + 1] >= len(self.obs[:, 0]) / 2
                         or self.x[3 * i + 2] <= 0
-                        or self.x[3 * i + 2] >= 1
-                ):
-                    self.reset_single_gaussian(i)
+                        or self.x[3 * i + 2] >= max(self.obs[:, 1])
+                ):continue
                 for j in range(0, 3):
                     self.x[3 * i + j] -= 1e-5
                     residual_1 = self.residual_factor().reshape(-1)

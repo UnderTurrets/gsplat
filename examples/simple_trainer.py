@@ -404,7 +404,7 @@ class Runner:
             colors = torch.cat([self.splats["sh0"], self.splats["shN"]], 1)  # [N, K, 3]
 
         rasterize_mode = "antialiased" if self.cfg.antialiased else "classic"
-        ## cuda complementation
+        ## CUDA complementation
         render_colors, render_alphas, info = rasterization(
             means=means,
             quats=quats,
@@ -552,6 +552,7 @@ class Runner:
                 # loss
                 l1loss = F.l1_loss(colors, pixels)
                 ssimloss = 1.0 - self.ssim(
+                    # (1,H,W,Channel)->(1,Channel,H,W)
                     pixels.permute(0, 3, 1, 2), colors.permute(0, 3, 1, 2)
                 )
                 loss = l1loss * (1.0 - cfg.ssim_lambda) + ssimloss * cfg.ssim_lambda
