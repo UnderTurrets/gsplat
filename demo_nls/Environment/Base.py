@@ -68,7 +68,7 @@ class CostFactor:
         if weights is None:
             weights = np.ones([self.obs_dim, 1])
         weights = np.repeat(weights, self.residual_dim)
-        return self._jacobian.T @ np.diag(weights.reshape(-1)) @ self._residual.reshape(-1)
+        return self._jacobian.T @ np.diag(weights.reshape(-1)) @ self._residual.reshape(-1, 1)
 
     # 计算近似Hessian矩阵
     def hessian(self, weights=None):
@@ -80,7 +80,6 @@ class CostFactor:
     # 更新残差和雅可比矩阵
     def update(self):
         self._residual = self.residual_factor()
-
         # 使用数值化雅可比矩阵
         if self.numerical_J:
             self._jacobian = np.zeros((self.residual_dim * self.obs_dim, self.x_dim))
@@ -96,7 +95,7 @@ class CostFactor:
 
     # 更新参数
     def step(self, update):
-        self.x += update
+        self.x += update.reshape(-1)
         self.update()
         return self.x
 

@@ -182,12 +182,12 @@ def create_splats_with_optimizers(
     # 均方根距离平均
     dist2_avg = (knn(points, 4)[:, 1:] ** 2).mean(dim=-1)  # [N,]
     dist_avg = torch.sqrt(dist2_avg)
-    # 基于近邻距离取对数值初始化，并复制成3个相同的值，后续再exp运算
+    # 基于近邻距离取对数值初始化，并复制成3个相同的值，后续再exp运算，但优化时是根据对数空间的参数进行优化
     scales = torch.log(dist_avg * init_scale).unsqueeze(-1).repeat(1, 3)  # [N, 3]
     # 生成随机四元数
     quats = torch.rand((N, 4))  # [N, 4]
 
-    # 用logit函数初始化不透明度，后续再sigmoid运算
+    # 用logit函数初始化不透明度，后续再sigmoid运算，但优化时是根据对数空间的参数进行优化
     opacities = torch.logit(torch.full((N,), init_opacity))  # [N,]
 
     params = [

@@ -108,18 +108,15 @@ def costFunc1DGS_adam_optimize(costFactor: CostFactor, lr: Optional[float] = Non
 
         # shape:(N,)
         means = params.reshape(-1, 3)[:, 0]
-        variances = params.reshape(-1, 3)[:, 1]
-        weight = params.reshape(-1, 3)[:, 2]
+        variances_log = params.reshape(-1, 3)[:, 1]
+        opacity_logic = params.reshape(-1, 3)[:, 2]
+        variances = torch.exp(variances_log)
+        opacity = torch.sigmoid(opacity_logic)
 
         # compute residual
         y_data_list = []
         for i in range(gaussian_num):
-            y_data_list.append(
-                (weight[i] * torch.exp(-((observes[:, 0] - means[i]) ** 2) /
-                                            (2 * (variances[i]) ** 2)
-                                            )
-                )
-            )
+            y_data_list.append(opacity[i] *torch.exp(-0.5 * (observes[:, 0] - means[i]) ** 2 / variances[i]))
         y_data_stack = torch.stack(y_data_list, dim=0)
         y_data = torch.sum(y_data_stack, dim=0)
         residual = observes[:, 1] - y_data
@@ -135,7 +132,7 @@ def costFunc1DGS_adam_optimize(costFactor: CostFactor, lr: Optional[float] = Non
             plt.subplot(2, 1, 2)
             for single_y_data in y_data_list:
                 plt.plot(observes[:, 0].detach().numpy(),single_y_data.detach().numpy(), linewidth=0.5)
-            plt.pause(0.5)
+            plt.pause(0.01)
 
         _weights = torch.ones(size=(cost_factor.obs_dim,)).repeat(cost_factor.residual_dim)
         loss = 0.5 * torch.sum(torch.square(residual * _weights))
@@ -171,7 +168,7 @@ def costFunc1DGS_adam_optimize(costFactor: CostFactor, lr: Optional[float] = Non
 
 # 进行多次实验
 for e_i in range(epoch):
-    cost_factor = CostFactor_1DGS(gaussian_num=50, is_great_init=False, is_numerical=True)
+    cost_factor = CostFactor_1DGS(gaussian_num=50, is_great_init=False, is_numerical=True, parameter_space=1)
 
     ## ==================================test on CostFactor_Env3==================================
     # a11, a12, b1 = cost_factor.x[0], cost_factor.x[1], cost_factor.x[2]
@@ -187,8 +184,8 @@ for e_i in range(epoch):
     # adam_optimize(params=[param1_adam, param2_adam], observes = obs, max_iterations=500)
     ## ==================================test on CostFactor_Env3==================================
 
-    # lr = 5e-1
-    # costFunc1DGS_adam_optimize(cost_factor, max_iterations=100, lr=lr)
+    # lr = 1e-1
+    # costFunc1DGS_adam_optimize(cost_factor, max_iterations=200, lr=lr,show_process=True)
 
     start_time = time.time()
     optimizer_nls.solve(cost_factor, show_process=True)

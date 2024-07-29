@@ -188,7 +188,7 @@ class CostFactor_Env4(CostFactor):
         x_data = self.obs[:, 0:2]
         y_data = self.obs[:, 2:4]
         y_obse = a * x_data ** 3 + b * x_data ** 2 + c * x_data + d
-        return y_data - y_obse
+        return (y_data - y_obse)
 
     def jacobian_factor(self):
         # Compute the Jacobian matrix for the model.
@@ -208,9 +208,14 @@ class CostFactor_Env4(CostFactor):
 
 class CostFactor_1DGS(CostFactor):
     def __init__(self, x_gt=None, x=None, obs=None, is_numerical=False, is_great_init: bool = False,
-                 gaussian_num: int = 50):
+                 gaussian_num: int = 50, parameter_space: int = 0):
+        ## parameter_space:
+        ## 0 :  self.x == [mean1,standard_variance1,opacity1,mean2,standard_variance2,opacity2,...],shape:(3*N,)
+        ## 1 :  self.x == [mean1,log(variance1),logic(opacity1),mean2,log(variance2),logic(opacity2),...],shape:(3*N,)
+
         # If the object is initialized, call the parent class constructor with the provided parameters.
         self.gaussian_num = gaussian_num
+        self.parameter_space = parameter_space
         if ((x_gt is not None) and
                 (x is not None) and
                 (obs is not None)):
@@ -222,26 +227,26 @@ class CostFactor_1DGS(CostFactor):
                 self.reset()
             else:
                 ## ============================create target by file============================
-                import pandas as pd
-                target = pd.read_csv(
-                    rf"{os.path.dirname(__file__)}/../Introduction-to-Gaussian-Splatting/DailyDelhiClimateTest.csv")[
-                    'meantemp']
-                ## 设置移动平均窗口大小
-                window_size = 8
-                ## 计算移动平均值
-                target = target.rolling(window=window_size).mean()
-                # 用前一个有效值填充 NaN
-                target = target.bfill()
-                target = numpy.array(target.values)
-                self.obs_dim = len(target)
-                x_data = np.linspace(start=0, stop=len(target) - 1, num=self.obs_dim)
+                # import pandas as pd
+                # target = pd.read_csv(
+                #     rf"{os.path.dirname(__file__)}/../Introduction-to-Gaussian-Splatting/DailyDelhiClimateTest.csv")[
+                #     'meantemp']
+                # ## 设置移动平均窗口大小
+                # window_size = 8
+                # ## 计算移动平均值
+                # target = target.rolling(window=window_size).mean()
+                # # 用前一个有效值填充 NaN
+                # target = target.bfill()
+                # target = numpy.array(target.values)
+                # self.obs_dim = len(target)
+                # x_data = np.linspace(start=0, stop=len(target) - 1, num=self.obs_dim)
                 ## ============================create target by file============================
 
                 ## ============================create target with some usual functions============================
-                # x_data = np.linspace(start=0, stop=10 * np.pi, num=self.obs_dim)
-                # target = np.sin(x_data) + 10
-                # # target = np.polyval([0.01, -3, 2, 0], x=x_data) +10
-                # target += np.random.normal(loc=0, scale=0.005, size=len(target))  # 添加一些噪声
+                x_data = np.linspace(start=0, stop=10 * np.pi, num=self.obs_dim)
+                target = np.sin(x_data) + 10
+                # target = np.polyval([0.01, -3, 2, 0], x=x_data) +10
+                target += np.random.normal(loc=0, scale=0.005, size=len(target))  # 添加一些噪声
                 ## ============================create target with some usual functions============================
 
                 ## normalize
@@ -252,18 +257,15 @@ class CostFactor_1DGS(CostFactor):
                 self.obs[:, 1] = target
                 ## get the parameters
                 means, variances, opacity = self.init_parameters()
-
-                # context:[mean1,var1,opacity1,mean2,var2,opacity2,...]
-                # shape:(3*N,)
                 self.x_gt = None
                 self.x = np.stack((means, variances, opacity), axis=0).T.reshape(-1)
 
+            self.init_opacity = max(self.obs[:, 1]) * 0.1
             ## show data
             # import matplotlib.pyplot as plt
             # plt.plot(self.obs[:, 0], self.obs[:, 1])
             # plt.show()
             # Call the parent class constructor with the generated data.
-
             super().__init__(is_numerical, self.x_gt, self.x, self.obs, 1)
 
     def init_parameters(self) -> Tuple:
@@ -272,9 +274,32 @@ class CostFactor_1DGS(CostFactor):
         # 使用 NearestNeighbors 找到每个 mean 最近的 3 个 mean
         nbrs = NearestNeighbors(n_neighbors=4, algorithm='auto').fit(means.reshape(-1, 1))
         distances, indices = nbrs.kneighbors(means.reshape(-1, 1))
-        # 计算每个 mean 最近的 3 个 mean 的均方根距离的平均值，忽略自身的距离
+        # 计算每个 mean 最近的 3 个 mean 的均方根距离的平均值，忽略自身的距离，作为方差初始值
         variances = np.sqrt(np.mean(distances[:, 1:] ** 2, axis=1))
-        opacity = np.full(shape=(self.gaussian_num,), fill_value=max(self.obs[:, 1])*0.1)
+        opacity = np.full(shape=(self.gaussian_num,), fill_value=max(self.obs[:, 1]) * 0.1)
+
+        if self.parameter_space == 0:
+            standard_variances = numpy.sqrt(variances)
+            return means, standard_variances, opacity
+        elif self.parameter_space == 1:
+            # 在对数空间作为参数
+            variances_log = numpy.log(variances)
+            opacity_logic = numpy.log(opacity / (1 - opacity))
+            return means, variances_log, opacity_logic
+
+    def get_parameters(self):
+        means = self.x.reshape(-1, 3)[:, 0]
+        varlog_or_stdvar = self.x.reshape(-1, 3)[:, 1]
+        opacity_or_opalogic = self.x.reshape(-1, 3)[:, 2]
+
+        variances = numpy.empty_like(varlog_or_stdvar)
+        opacity = numpy.empty_like(opacity_or_opalogic)
+        if self.parameter_space == 0:
+            variances = numpy.square(varlog_or_stdvar)
+            opacity = opacity_or_opalogic
+        elif self.parameter_space == 1:
+            variances = numpy.exp(varlog_or_stdvar)
+            opacity = 1 / (1 + numpy.exp(-opacity_or_opalogic))
         return means, variances, opacity
 
     def reset_single_gaussian(self, gaussian_id:int) -> None:
@@ -282,15 +307,17 @@ class CostFactor_1DGS(CostFactor):
         self.x[3 * gaussian_id] = random.randrange(start=int(min(self.obs[:, 0])), stop=int(max(self.obs[:, 0])))
         means = self.x.reshape(-1, 3)[:, 0]
         distance_sorted = numpy.sort(numpy.square(means - self.x[3 * gaussian_id]))
-        self.x[3 * gaussian_id + 1] = numpy.sqrt(distance_sorted[1:4].mean())
-        self.x[3 * gaussian_id + 2] = max(self.obs[:, 1]) * 0.1
+        var = numpy.sqrt(distance_sorted[1:4].mean())
+        if self.parameter_space == 0:
+            self.x[3 * gaussian_id + 1] = numpy.sqrt(var)
+            self.x[3 * gaussian_id + 2] = self.init_opacity
+        elif self.parameter_space == 1:
+            self.x[3 * gaussian_id + 1] = numpy.log(var)
+            self.x[3 * gaussian_id + 2] = numpy.log(self.init_opacity/(1 - self.init_opacity))
 
     def reset(self)-> None:
         means, variances, opacity = self.init_parameters()
-        # context:[mean1,var1,opacity1,mean2,var2,opacity2,...]
-        # shape:(3*N,)
         self.x_gt = np.stack((means, variances, opacity), axis=0).T.reshape(-1)
-
         # add noise
         means_noise = means + means * np.random.randn(means.size) / 5
         variances_noise = variances + variances * np.random.randn(variances.size) / 5
@@ -298,7 +325,6 @@ class CostFactor_1DGS(CostFactor):
         opacity_noise = opacity + opacity * np.random.randn(opacity.size) / 5
         opacity_noise = numpy.clip(a=opacity_noise, a_min=0.01, a_max=None)
         self.x = np.stack((means_noise, variances_noise, opacity_noise), axis=0).T.reshape(-1)
-
         # generate data
         self.obs = np.zeros([self.obs_dim, 2])
         self.obs[:, 0] = np.linspace(start=0, stop=self.obs_dim - 1, num=self.obs_dim)
@@ -306,45 +332,61 @@ class CostFactor_1DGS(CostFactor):
 
     def residual_factor(self) -> ndarray:
         # Compute the residuals between observed data and the model's predictions.
-        return self.obs[:, 1] - self.reconstructed_signal()
+        return (self.obs[:, 1] - self.reconstructed_signal()).reshape(-1, 1)
 
     def jacobian_factor(self) -> ndarray:
         # Compute the Jacobian matrix for the model.
         J = np.zeros(shape=(self.obs_dim, 3 * self.gaussian_num))
+        means, variances, opacity = self.get_parameters()
+        varlog_or_stdvar = self.x.reshape(-1, 3)[:, 1]
+        opacity_or_opalogic = self.x.reshape(-1, 3)[:, 2]
         for i in range(self.gaussian_num):
             if (
                 ## variance is too low or too high
-                self.x[3 * i + 1] <= 0
-                or self.x[3 * i + 1] >= len(self.obs[:, 0])/2
+                variances[i] <= 0
+                or variances[i] >= len(self.obs[:, 0])/2
                 ## opacity is too low or too high
-                or self.x[3 * i + 2] <= 0
-                or self.x[3 * i + 2] >= max(self.obs[:, 1])
+                or opacity[i] <= 0
+                or opacity[i] >= max(self.obs[:, 1])
             ):continue
             J[:, 3 * i] = -(
-                    self.x[3 * i + 2] * (self.obs[:, 0] - self.x[3 * i]) / (self.x[3 * i + 1] ** 2) *
-                    numpy.exp(-((self.obs[:, 0] - self.x[3 * i]) ** 2) / (2 * (self.x[3 * i + 1]) ** 2))
+                    opacity[i] * (self.obs[:, 0] - means[i]) / variances[i] *
+                    numpy.exp(-0.5 * (self.obs[:, 0] - means[i]) ** 2 / variances[i])
             )
-            J[:, 3 * i + 1] = -(
-                    self.x[3 * i + 2] * ((self.obs[:, 0] - self.x[3 * i])**2) / (self.x[3 * i + 1] ** 3) *
-                    numpy.exp(-((self.obs[:, 0] - self.x[3 * i]) ** 2) / (2 * (self.x[3 * i + 1]) ** 2))
-            )
-            J[:, 3 * i + 2] = -numpy.exp(
-                                    -((self.obs[:, 0] - self.x[3 * i]) ** 2) /
-                                    (2 * (self.x[3 * i + 1]) ** 2)
-                                )
+            if self.parameter_space == 0:
+                J[:, 3 * i + 1] = -(
+                        opacity[i] * ((self.obs[:, 0] - means[i]) ** 2) / (varlog_or_stdvar[i] ** 3) *
+                        numpy.exp(-0.5 * ((self.obs[:, 0] - means[i]) ** 2) /  varlog_or_stdvar[i] ** 2)
+                )
+                J[:, 3 * i + 2] = -numpy.exp(-0.5 * ((self.obs[:, 0] - means[i]) ** 2) /  varlog_or_stdvar[i] ** 2)
+            elif self.parameter_space == 1:
+                J[:, 3 * i + 1] = -(
+                        opacity[i] * ((self.obs[:, 0] - means[i])**2) / (2 * variances[i] ** 2) *
+                        numpy.exp(-0.5 * (self.obs[:, 0] - means[i]) ** 2 / variances[i]) * numpy.exp(varlog_or_stdvar[i])
+                )
+                J[:, 3 * i + 2] = -(
+                                    numpy.exp(-0.5 * (self.obs[:, 0] - means[i]) ** 2 / variances[i]) *
+                                    numpy.exp(-opacity_or_opalogic[i])/
+                                    ((1 + numpy.exp(-opacity_or_opalogic[i]))**2)
+                )
         return J
 
     def update(self)->None:
+        ## update residual
         self._residual = self.residual_factor()
+        means, variances, opacity = self.get_parameters()
         # 使用数值化雅可比矩阵
         if self.numerical_J:
             self._jacobian = np.zeros(shape=(self.obs_dim, 3 * self.gaussian_num))
             for i in range(self.gaussian_num):
-                if (self.x[3 * i + 1] <= 0
-                        or self.x[3 * i + 1] >= len(self.obs[:, 0]) / 2
-                        or self.x[3 * i + 2] <= 0
-                        or self.x[3 * i + 2] >= max(self.obs[:, 1])
-                ):continue
+                if (
+                        ## variance is too low or too high
+                        variances[i] <= 0
+                        or variances[i] >= len(self.obs[:, 0]) / 2
+                        ## opacity is too low or too high
+                        or opacity[i] <= 0
+                        or opacity[i] >= max(self.obs[:, 1])
+                ): continue
                 for j in range(0, 3):
                     self.x[3 * i + j] -= 1e-5
                     residual_1 = self.residual_factor().reshape(-1)
@@ -356,30 +398,17 @@ class CostFactor_1DGS(CostFactor):
             self._jacobian = self.jacobian_factor()
 
     def reconstructed_signal(self)->ndarray:
-        means = self.x.reshape(-1, 3)[:, 0]
-        variances = self.x.reshape(-1, 3)[:, 1]
-        opacity = self.x.reshape(-1, 3)[:, 2]
+        means, variances, opacity = self.get_parameters()
         y_data = numpy.zeros(self.obs_dim)
         for i in range(self.gaussian_num):
-            y_data += (opacity[i] *
-                       numpy.exp(-((self.obs[:, 0] - means[i]) ** 2) /
-                                 (2 * (variances[i]) ** 2)
-                                 )
-                       )
+            y_data += opacity[i] * numpy.exp(-0.5 * (self.obs[:, 0] - means[i]) ** 2 / variances[i])
         return y_data
 
     def reconstructed_disperse(self)->List:
-        means = self.x.reshape(-1, 3)[:, 0]
-        variances = self.x.reshape(-1, 3)[:, 1]
-        opacity = self.x.reshape(-1, 3)[:, 2]
+        means, variances, opacity = self.get_parameters()
         y_data_list = []
         for i in range(self.gaussian_num):
-            y_data_list.append(
-                 opacity[i] *
-                 numpy.exp(-((self.obs[:, 0] - means[i]) ** 2) /
-                           (2 * (variances[i]) ** 2)
-                           )
-            )
+            y_data_list.append(opacity[i] *numpy.exp(-0.5 * (self.obs[:, 0] - means[i]) ** 2 / variances[i]))
         return y_data_list
 
     def calculate_psnr(self)->float:
@@ -399,7 +428,7 @@ if __name__ == '__main__':
     # jacobian_numerical = cost_factor.jacobian()
     # print(np.linalg.norm(jacobian_analytical - jacobian_numerical))
 
-    cost_factor = CostFactor_1DGS(is_numerical=True)
+    cost_factor = CostFactor_1DGS(is_numerical=True, parameter_space=0)
     jacobian_analytical = cost_factor.jacobian_factor()
     jacobian_numerical = cost_factor.jacobian()
     print(np.linalg.norm(jacobian_analytical - jacobian_numerical))
