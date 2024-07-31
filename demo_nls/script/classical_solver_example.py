@@ -54,7 +54,7 @@ def costFunc3_adahessian_optimize(params: Params, observes: tensor, lr: Optional
     plt.plot(loss_history, label='loss')
     plt.legend()
     plt.show()
-
+    return
 
 def costFunc3_adam_optimize(params: Params, observes: tensor, lr: Optional[float] = None,
                             max_iterations: int = 2000, ):
@@ -82,37 +82,34 @@ def costFunc3_adam_optimize(params: Params, observes: tensor, lr: Optional[float
     plt.plot(loss_history, label='loss')
     plt.legend()
     plt.show()
-
+    return
 
 def costFunc1DGS_adam_optimize(costFactor: CostFactor, lr: Optional[float] = None, max_iterations: int = 2000, show_process:bool=False):
     observes = torch.tensor(data=costFactor.obs, requires_grad=True, dtype=torch.float32)
-    params = torch.tensor(data=costFactor.x, requires_grad=True, dtype=torch.float32)
+
+    #shape: (gaussian_num,)
+    means, variances, opacity = cost_factor.get_parameters()
+    means = torch.tensor(data=means, requires_grad=True, dtype=torch.float32)
+    variances = torch.tensor(data=variances, requires_grad=True, dtype=torch.float32)
+    opacity = torch.tensor(data=opacity, requires_grad=True, dtype=torch.float32)
 
     if lr is not None:
-        opt = torch.optim.Adam([params], lr=lr)
+        opt = torch.optim.Adam([means, variances, opacity], lr=lr)
     else:
-        opt = torch.optim.Adam([params])
+        opt = torch.optim.Adam([means, variances, opacity])
 
     scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer=opt, gamma=0.01 ** (1 / max_iterations))
     loss_history = []
     panr_history = []
     y_data = torch.zeros_like(input=observes[:, 1])
-    gaussian_num = params.reshape(-1, 3)[:, 0].size(0)
+    gaussian_num = means.shape[0]
 
     if show_process:
         plt.figure()
         plt.ion()
         plt.show()
     for i in tqdm(range(max_iterations)):
-        opt.zero_grad()
-
-        # shape:(N,)
-        means = params.reshape(-1, 3)[:, 0]
-        variances_log = params.reshape(-1, 3)[:, 1]
-        opacity_logic = params.reshape(-1, 3)[:, 2]
-        variances = torch.exp(variances_log)
-        opacity = torch.sigmoid(opacity_logic)
-
+        opt.zero_grad(set_to_none=True)
         # compute residual
         y_data_list = []
         for i in range(gaussian_num):
@@ -120,6 +117,32 @@ def costFunc1DGS_adam_optimize(costFactor: CostFactor, lr: Optional[float] = Non
         y_data_stack = torch.stack(y_data_list, dim=0)
         y_data = torch.sum(y_data_stack, dim=0)
         residual = observes[:, 1] - y_data
+
+        ##=========================test autograd========================
+        # start_time = time.time()
+        # _jacobian = cost_factor.jacobian()
+        # jacobian_auto = torch.empty_like(torch.from_numpy(_jacobian))
+        # for i in range(residual.shape[0]):
+        #     jacobian_auto[i, :] = torch.autograd.grad(residual[i], params, retain_graph=True)[0]
+        # autograd_time = time.time() - start_time
+        # print(autograd_time) # 14s
+        #
+        # def get_residual(param):
+        #     means = param.reshape(-1, 3)[:, 0]
+        #     variances_log = param.reshape(-1, 3)[:, 1]
+        #     opacity_logic = param.reshape(-1, 3)[:, 2]
+        #     variances = torch.exp(variances_log)
+        #     opacity = torch.sigmoid(opacity_logic)
+        #     # compute residual
+        #     y_data = torch.empty_like(input=observes[:, 1])
+        #     for i in range(gaussian_num):
+        #         y_data += opacity[i] * torch.exp(-0.5 * (observes[:, 0] - means[i]) ** 2 / variances[i])
+        #     return observes[:, 1] - y_data
+        # start_time = time.time()
+        # jacobian_auto2 = torch.autograd.functional.jacobian(get_residual, params)
+        # autograd2_time = time.time() - start_time
+        # print(autograd2_time) # 14s
+        ##=========================test autograd========================
 
         if show_process:
             plt.clf()
@@ -165,6 +188,7 @@ def costFunc1DGS_adam_optimize(costFactor: CostFactor, lr: Optional[float] = Non
     plt.show()
     fig.tight_layout()
 
+    return
 
 # 进行多次实验
 for e_i in range(epoch):
@@ -184,8 +208,8 @@ for e_i in range(epoch):
     # adam_optimize(params=[param1_adam, param2_adam], observes = obs, max_iterations=500)
     ## ==================================test on CostFactor_Env3==================================
 
-    # lr = 1e-1
-    # costFunc1DGS_adam_optimize(cost_factor, max_iterations=200, lr=lr,show_process=True)
+    lr = 5e-2
+    costFunc1DGS_adam_optimize(cost_factor, max_iterations=200, lr=lr, show_process=True)
 
     start_time = time.time()
     optimizer_nls.solve(cost_factor, show_process=True)

@@ -210,8 +210,8 @@ class CostFactor_1DGS(CostFactor):
     def __init__(self, x_gt=None, x=None, obs=None, is_numerical=False, is_great_init: bool = False,
                  gaussian_num: int = 50, parameter_space: int = 0):
         ## parameter_space:
-        ## 0 :  self.x == [mean1,standard_variance1,opacity1,mean2,standard_variance2,opacity2,...],shape:(3*N,)
-        ## 1 :  self.x == [mean1,log(variance1),logic(opacity1),mean2,log(variance2),logic(opacity2),...],shape:(3*N,)
+        ## 0 default space:  self.x == [mean1,standard_variance1,opacity1,mean2,standard_variance2,opacity2,...],shape:(3*N,)
+        ## 1 log space:  self.x == [mean1,log(variance1),logic(opacity1),mean2,log(variance2),logic(opacity2),...],shape:(3*N,)
 
         # If the object is initialized, call the parent class constructor with the provided parameters.
         self.gaussian_num = gaussian_num
@@ -314,6 +314,7 @@ class CostFactor_1DGS(CostFactor):
         elif self.parameter_space == 1:
             self.x[3 * gaussian_id + 1] = numpy.log(var)
             self.x[3 * gaussian_id + 2] = numpy.log(self.init_opacity/(1 - self.init_opacity))
+        return
 
     def reset(self)-> None:
         means, variances, opacity = self.init_parameters()
@@ -329,6 +330,7 @@ class CostFactor_1DGS(CostFactor):
         self.obs = np.zeros([self.obs_dim, 2])
         self.obs[:, 0] = np.linspace(start=0, stop=self.obs_dim - 1, num=self.obs_dim)
         self.obs[:, 1] = self.reconstructed_signal()
+        return
 
     def residual_factor(self) -> ndarray:
         # Compute the residuals between observed data and the model's predictions.
@@ -396,6 +398,7 @@ class CostFactor_1DGS(CostFactor):
                     self._jacobian[:, 3 * i + j] = (residual_2 - residual_1) / 2e-5
         else:
             self._jacobian = self.jacobian_factor()
+        return
 
     def reconstructed_signal(self)->ndarray:
         means, variances, opacity = self.get_parameters()

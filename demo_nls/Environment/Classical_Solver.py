@@ -208,11 +208,10 @@ class Classical_NLS_Solver(SolverFactor):
                 iteration_speed_history.append(pbar.format_dict["rate"])
 
         draw_1DGS()
-        if len(iteration_speed_history)!=0:
-            return cost_factor, numpy.array(iteration_speed_history).mean()
-        else:
-            return cost_factor, []
-
+        average_iteration_speed = float('nan')
+        if len(iteration_speed_history) != 0:
+            average_iteration_speed = numpy.array(iteration_speed_history).mean()
+        return cost_factor, average_iteration_speed
 
 # 梯度下降（GD）求解器类
 class Classical_GD_Solver(SolverFactor):
@@ -305,10 +304,10 @@ class Classical_GD_Solver(SolverFactor):
                 iteration_speed_history.append(pbar.format_dict["rate"])
 
         draw_1DGS()
+        average_iteration_speed = float('nan')
         if len(iteration_speed_history) != 0:
-            return cost_factor, numpy.array(iteration_speed_history).mean()
-        else:
-            return cost_factor, []
+            average_iteration_speed = numpy.array(iteration_speed_history).mean()
+        return cost_factor, average_iteration_speed
 
 
 from Environment.CostFactor import CostFactor_Env1, CostFactor_Env2, CostFactor_Env3, CostFactor_Env4
