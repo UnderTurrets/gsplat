@@ -108,10 +108,11 @@ fully_fused_projection_fwd_kernel(const uint32_t C, const uint32_t N,
     // v1是协方差矩阵的较大的一个特征值
     T b = 0.5f * (covar2d[0][0] + covar2d[1][1]);
     T v1 = b + sqrt(max(0.01f, b * b - det));
-    // 此时覆盖的概率密度的积分大于0.997，可以认为包含了所有有效的分布
-    T radius = ceil(3.f * sqrt(v1));
     // T v2 = b - sqrt(max(0.1f, b * b - det));
+    // 此时覆盖的概率密度的积分大于0.997，可以认为包含了所有有效的分布
     // T radius = ceil(3.f * sqrt(max(v1, v2)));
+    T radius = ceil(3.f * sqrt(v1));
+
 
     // 去除半径太小的
     if (radius <= radius_clip) {

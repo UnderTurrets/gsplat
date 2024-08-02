@@ -227,26 +227,26 @@ class CostFactor_1DGS(CostFactor):
                 self.reset()
             else:
                 ## ============================create target by file============================
-                # import pandas as pd
-                # target = pd.read_csv(
-                #     rf"{os.path.dirname(__file__)}/../Introduction-to-Gaussian-Splatting/DailyDelhiClimateTest.csv")[
-                #     'meantemp']
-                # ## 设置移动平均窗口大小
-                # window_size = 8
-                # ## 计算移动平均值
-                # target = target.rolling(window=window_size).mean()
-                # # 用前一个有效值填充 NaN
-                # target = target.bfill()
-                # target = numpy.array(target.values)
-                # self.obs_dim = len(target)
-                # x_data = np.linspace(start=0, stop=len(target) - 1, num=self.obs_dim)
+                import pandas as pd
+                target = pd.read_csv(
+                    rf"{os.path.dirname(__file__)}/../Introduction-to-Gaussian-Splatting/DailyDelhiClimateTest.csv")[
+                    'meantemp']
+                ## 设置移动平均窗口大小
+                window_size = 8
+                ## 计算移动平均值
+                target = target.rolling(window=window_size).mean()
+                # 用前一个有效值填充 NaN
+                target = target.bfill()
+                target = numpy.array(target.values)
+                self.obs_dim = len(target)
+                x_data = np.linspace(start=0, stop=len(target) - 1, num=self.obs_dim)
                 ## ============================create target by file============================
 
                 ## ============================create target with some usual functions============================
-                x_data = np.linspace(start=0, stop=10 * np.pi, num=self.obs_dim)
-                target = np.sin(x_data) + 10
-                # target = np.polyval([0.01, -3, 2, 0], x=x_data) +10
-                target += np.random.normal(loc=0, scale=0.005, size=len(target))  # 添加一些噪声
+                # x_data = np.linspace(start=0, stop=10 * np.pi, num=self.obs_dim)
+                # target = np.sin(x_data) + 10
+                # # target = np.polyval([0.01, -3, 2, 0], x=x_data) +10
+                # target += np.random.normal(loc=0, scale=0.005, size=len(target))  # 添加一些噪声
                 ## ============================create target with some usual functions============================
 
                 ## normalize

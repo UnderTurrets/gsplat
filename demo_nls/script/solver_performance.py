@@ -15,25 +15,28 @@ from torch import tensor
 from tqdm import tqdm
 from typing import List, Optional, Union
 import math
-epoch = 100
+epoch = 5
 
-# test iteration speed, so max_iteration is small
-optimizer_nls = Classical_NLS_Solver(max_iter=50)
-optimizer_gd = Classical_GD_Solver(max_iter=50)
 LMspeed_history = []
+SparseLMspeed_history = []
 GDspeed_history = []
 gaussian_num_history = []
 for e_i in range(epoch):
     gaussian_num = 30+e_i*10
     cost_factor = CostFactor_1DGS(gaussian_num=gaussian_num, is_great_init=False)
+    # test iteration speed, so max_iteration is small
+    optimizer_nls = Classical_NLS_Solver(max_iter=50)
+    optimizer_nls_sparse = Classical_NLS_Solver(max_iter=50)
+    optimizer_gd = Classical_GD_Solver(max_iter=50)
 
     # lr = 1e-1
     # costFunc1DGS_adam_optimize(cost_factor, max_iterations=3000, lr=lr)
 
-
-    LMspeed = optimizer_nls.solve(cost_factor)
+    _, LMspeed, _ = optimizer_nls.solve(cost_factor)
     LMspeed_history.append(LMspeed)
-    GDspeed = optimizer_gd.solve(cost_factor)
+    _, SparseLMspeed, _ = optimizer_nls_sparse.solve(cost_factor)
+    SparseLMspeed_history.append(SparseLMspeed)
+    _, GDspeed, _ = optimizer_gd.solve(cost_factor)
     GDspeed_history.append(GDspeed)
     gaussian_num_history.append(gaussian_num)
 
