@@ -56,7 +56,8 @@ class Classical_NLS_Solver(SolverFactor):
             plt.plot(miu_history, label='miu')
             plt.plot(nu_history, label='nu')
             plt.plot(varrho_history, label='varrho')
-            plt.title(f'LM,gaussian_num={cost_factor.gaussian_num:}')
+            plt.title(f'LM,gaussian_num={cost_factor.gaussian_num:}\n'
+                      f'block size={block_size}')
             plt.legend()
             plt.subplot(4, 1, 2)
             plt.plot(loss_history, label='loss')
@@ -82,6 +83,7 @@ class Classical_NLS_Solver(SolverFactor):
             plt.show()
         pbar = tqdm(range(self.max_iter))
         for iterations in pbar:
+            iteration_time = time.time()
             loss_history.append(cost_factor.error(weights))
             miu_history.append(miu)
             nu_history.append(nu)
@@ -142,7 +144,7 @@ class Classical_NLS_Solver(SolverFactor):
             self.iteration = iterations  # 记录当前迭代次数
             A = hessian + miu * numpy.eye(cost_factor.x_dim)
 
-            start_time = time.time()
+            solve_equation_time = time.time()
             ## use sparse matrix to speed up processing of inverse
             if block_size > 0:
                 update = np.zeros(shape=(cost_factor.x_dim, 1))
@@ -154,7 +156,7 @@ class Classical_NLS_Solver(SolverFactor):
                     cost_factor_test = copy.deepcopy(cost_factor)
                 for i in range((cost_factor.x_dim-1)//block_size + 1):
                     if current_idx + block_size > cost_factor.x_dim:
-                        end_idx = len(cost_factor.x_dim)
+                        end_idx = cost_factor.x_dim
                         current_idx = end_idx - block_size
                     else:
                         end_idx = current_idx + block_size
@@ -179,7 +181,7 @@ class Classical_NLS_Solver(SolverFactor):
             ## solve the equation directly
             else:
                 update = - np.linalg.inv(A) @ gradient
-            solve_equation_time = time.time() - start_time
+            solve_equation_time = time.time() - solve_equation_time
             solve_equation_time_history.append(solve_equation_time)
 
             if np.linalg.norm(update) < self.epsilon * (np.linalg.norm(cost_factor.x) + self.epsilon):
@@ -190,23 +192,23 @@ class Classical_NLS_Solver(SolverFactor):
             cost_factor_hypothesis = copy.deepcopy(cost_factor)
             cost_factor_hypothesis.step(update)
             ## 计算误差比率
-            varrho = (
-                    cost_factor.error(weights) - cost_factor_hypothesis.error(weights) /
-                    (0.5 * update.T @ (miu * update - gradient))
-            ).item()
+            # varrho = (
+            #         cost_factor.error(weights) - cost_factor_hypothesis.error(weights) /
+            #         (0.5 * update.T @ (miu * update - gradient))
+            # ).item()
             ## If use this method, other check shoule be added or iterations will stop slowly.
-            # varrho = ((cost_factor_hypothesis.error(weights) - cost_factor.error(weights)) /
-            #           (update.T @ cost_factor_hypothesis.gradient(weights))).item()
-            # # other check
-            # if np.linalg.norm(gradient, ord=np.inf) < self.tolOpt:
-            #     print('grad is low so stop')
-            #     break
-            # if np.linalg.norm(update) < self.tolX * max(1, np.linalg.norm(cost_factor.x)):
-            #     print('update is low so stop')
-            #     break
-            # if abs(cost_factor_hypothesis.error(weights) - cost_factor.error(weights)) < self.tolFun * max(1, abs(cost_factor.error(weights))):
-            #     print('error is low so stop')
-            #     break
+            varrho = ((cost_factor_hypothesis.error(weights) - cost_factor.error(weights)) /
+                      (update.T @ cost_factor_hypothesis.gradient(weights))).item()
+            # other check
+            if np.linalg.norm(gradient, ord=np.inf) < self.tolOpt:
+                print('grad is low so stop')
+                break
+            if np.linalg.norm(update) < self.tolX * max(1, np.linalg.norm(cost_factor.x)):
+                print('update is low so stop')
+                break
+            if abs(cost_factor_hypothesis.error(weights) - cost_factor.error(weights)) < self.tolFun * max(1, abs(cost_factor.error(weights))):
+                print('error is low so stop')
+                break
 
             varrho_history.append(varrho)
             if show_process:
@@ -244,16 +246,13 @@ class Classical_NLS_Solver(SolverFactor):
                 nu = nu * 2
             desc = f"LM | iteration:{iterations}"
             pbar.set_description(desc)
-            if pbar.format_dict["rate"] is not None:
-                iteration_speed_history.append(pbar.format_dict["rate"])
+            iteration_time = time.time() - iteration_time
+            iteration_speed_history.append(1/iteration_time)
         if show_process:
             plt.close("process_LM")
             plt.close("step")
         if show_result: draw_1DGS()
-        average_iteration_speed = None
-        if len(iteration_speed_history) != 0:
-            average_iteration_speed = numpy.array(iteration_speed_history).mean()
-        return cost_factor, average_iteration_speed, numpy.array(solve_equation_time_history).mean()
+        return cost_factor, numpy.array(iteration_speed_history).mean(), numpy.array(solve_equation_time_history).mean()
 
 # 梯度下降（GD）求解器类
 class Classical_GD_Solver(SolverFactor):
@@ -307,6 +306,7 @@ class Classical_GD_Solver(SolverFactor):
         # 迭代求解
         pbar = tqdm(range(self.max_iter))
         for iterations in pbar:
+            iteration_time = time.time()
             if show_process:
                 plt.figure(num="process_GD")
                 plt.cla()
@@ -345,8 +345,8 @@ class Classical_GD_Solver(SolverFactor):
 
             desc = f"GD | iteration:{iterations}"
             pbar.set_description(desc)
-            if pbar.format_dict["rate"] is not None:
-                iteration_speed_history.append(pbar.format_dict["rate"])
+            iteration_time = time.time() - iteration_time
+            iteration_speed_history.append(1/iteration_time)
         if show_process: plt.close("process_GD")
         if show_result: draw_1DGS()
         average_iteration_speed = float('nan')
