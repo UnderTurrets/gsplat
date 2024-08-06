@@ -289,16 +289,16 @@ class CostFactor_1DGS(CostFactor):
 
     def get_parameters(self):
         means = self.x.reshape(-1, 3)[:, 0]
-        varlog_or_stdvar = self.x.reshape(-1, 3)[:, 1]
+        varlog_or_std = self.x.reshape(-1, 3)[:, 1]
         opacity_or_opalogic = self.x.reshape(-1, 3)[:, 2]
 
-        variances = numpy.empty_like(varlog_or_stdvar)
+        variances = numpy.empty_like(varlog_or_std)
         opacity = numpy.empty_like(opacity_or_opalogic)
         if self.parameter_space == 0:
-            variances = numpy.square(varlog_or_stdvar)
+            variances = numpy.square(varlog_or_std)
             opacity = opacity_or_opalogic
         elif self.parameter_space == 1:
-            variances = numpy.exp(varlog_or_stdvar)
+            variances = numpy.exp(varlog_or_std)
             opacity = 1 / (1 + numpy.exp(-opacity_or_opalogic))
         return means, variances, opacity
 
@@ -337,7 +337,6 @@ class CostFactor_1DGS(CostFactor):
         return (self.obs[:, 1] - self.reconstructed_signal()).reshape(-1, 1)
 
     def jacobian_factor(self) -> ndarray:
-        # Compute the Jacobian matrix for the model.
         J = np.zeros(shape=(self.obs_dim, 3 * self.gaussian_num))
         means, variances, opacity = self.get_parameters()
         varlog_or_stdvar = self.x.reshape(-1, 3)[:, 1]
@@ -358,7 +357,7 @@ class CostFactor_1DGS(CostFactor):
             if self.parameter_space == 0:
                 J[:, 3 * i + 1] = -(
                         opacity[i] * ((self.obs[:, 0] - means[i]) ** 2) / (varlog_or_stdvar[i] ** 3) *
-                        numpy.exp(-0.5 * ((self.obs[:, 0] - means[i]) ** 2) /  varlog_or_stdvar[i] ** 2)
+                        numpy.exp(-0.5 * ((self.obs[:, 0] - means[i]) ** 2) / varlog_or_stdvar[i] ** 2)
                 )
                 J[:, 3 * i + 2] = -numpy.exp(-0.5 * ((self.obs[:, 0] - means[i]) ** 2) /  varlog_or_stdvar[i] ** 2)
             elif self.parameter_space == 1:

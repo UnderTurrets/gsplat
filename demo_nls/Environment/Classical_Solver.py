@@ -11,9 +11,9 @@ import time
 
 # 非线性最小二乘法（NLS）求解器类
 class Classical_NLS_Solver(SolverFactor):
-    def __init__(self, optimizer_type="LM", max_iter=2000, tolX=1e-4, tolOpt=1e-8, tolFun=1e-4):
+    def __init__(self, optimizer_type="LM", max_iter=2000, tolX=1e-4, tolOpt=1e-6, tolFun=1e-4):
         super().__init__(optimizer_type, max_iter=max_iter, tolX=tolX, tolOpt=tolOpt, tolFun=tolFun)
-        self.tou = 1e+1
+        self.tou = 1e-0
         self.epsilon = 1e-8
         self.iteration = 0  # 初始化迭代次数
 
@@ -89,58 +89,6 @@ class Classical_NLS_Solver(SolverFactor):
             nu_history.append(nu)
             # for 1DGS
             psnr_history.append(cost_factor.calculate_psnr())
-            ## ============================================test on torch.autograd.grad======================================================
-            # from .LMoptimizer import LevenbergMarquardt
-            # import torch
-            # x = torch.tensor(cost_factor.x, requires_grad=True, dtype=torch.float32)
-            # obs = torch.tensor(cost_factor.obs, requires_grad=True, dtype=torch.float32)
-            # residual = obs[:, 2:4] - (obs[:, 0:2] @ x.reshape(2, 3)[:, :2].t() + x.reshape(2, 3)[:, 2].t())
-            # _weights = torch.ones(size=(cost_factor.obs_dim, 1)).expand(-1, cost_factor.residual_dim)
-            # loss = 0.5 * torch.sum(torch.square(residual * _weights))
-            # loss.backward(create_graph=True)
-            ## they equals
-            # print(x.grad)
-            # print(g)
-            # print(torch.autograd.grad(loss, x))
-
-            ## they equals
-            # print(cost_factor._jacobian)
-            # def cost1(x):
-            #     residual = obs[:, 2:4] - (obs[:, 0:2] @ x[:4].reshape(2, 2).t() + x[4:].t())
-            #     # weights = torch.ones(size=(cost_factor.obs_dim, 1)).expand(-1, cost_factor.residual_dim)
-            #     # loss = 0.5 * torch.sum(torch.square(residual * weights))
-            #     return residual
-            # print(torch.autograd.functional.jacobian(cost1, x))
-
-            ## Hessian.
-            ## they equals
-            # print(A)
-            # def cost2(x):
-            #     residual = obs[:, 2:4] - (obs[:, 0:2] @ x[:4].reshape(2, 2).t() + x[4:].t())
-            #     weights = torch.ones(size=(cost_factor.obs_dim, 1)).expand(-1, cost_factor.residual_dim)
-            #     loss = 0.5 * torch.sum(torch.square(residual * weights))
-            #     return loss
-            # print(torch.autograd.functional.hessian(cost2,x))
-
-            ## test LMoptimizer
-            # a11, a12, b1 = cost_factor.x[0], cost_factor.x[1], cost_factor.x[2]
-            # a21, a22, b2 = cost_factor.x[3], cost_factor.x[4], cost_factor.x[5]
-            # param1 = torch.tensor(data=[[a11, a12, b1]], requires_grad=True, dtype=torch.float32)
-            # param2 = torch.tensor(data=[[a21, a22, b2]], requires_grad=True, dtype=torch.float32)
-            # import torch_optimizer.adahessian as adahessian
-            # opt = LMoptimizer.LevenbergMarquardt([param1, param2],is_estimate=False)
-            # def closure():
-            #     opt.zero_grad()
-            #     obs = torch.tensor(cost_factor.obs, requires_grad=True, dtype=torch.float32)
-            #     A = torch.cat(tensors=[param1, param2], dim=0)[:, 0:2]
-            #     B = torch.cat(tensors=[param1, param2], dim=0)[:, 2]
-            #     residual = obs[:, 2:4] - (obs[:, 0:2] @ A.t() + B.t())
-            #     _weights = torch.ones(size=(cost_factor.obs_dim, 1)).expand(-1, cost_factor.residual_dim)
-            #     loss = 0.5 * torch.sum(torch.square(residual * _weights))
-            #     loss.backward(create_graph=True)
-            #     return loss
-            # opt.step(closure)
-            ## ============================================test======================================================
             self.iteration = iterations  # 记录当前迭代次数
             A = hessian + miu * numpy.eye(cost_factor.x_dim)
 
@@ -165,17 +113,17 @@ class Classical_NLS_Solver(SolverFactor):
                     sub_update = - np.linalg.inv(A_sub) @ gradient_sub
                     # 将解的分块赋值给相应的 update 部分
                     update[current_idx:end_idx, 0] = sub_update
-                    if show_process:
-                        test_update = np.zeros(shape=(cost_factor.x_dim, 1))
-                        test_update[current_idx:end_idx, 0] = sub_update
-                        cost_factor_test.step(test_update)
-                        plt.figure(num="step")
-                        plt.clf()
-                        plt.plot(cost_factor_test.obs[:, 0], cost_factor_test.obs[:, 1], label='origin')
-                        plt.plot(cost_factor_test.obs[:, 0], cost_factor_test.reconstructed_signal(), label='reconstructed')
-                        plt.xlabel('x')
-                        plt.legend()
-                        plt.pause(0.01)
+                    # if show_process:
+                    #     test_update = np.zeros(shape=(cost_factor.x_dim, 1))
+                    #     test_update[current_idx:end_idx, 0] = sub_update
+                    #     cost_factor_test.step(test_update)
+                    #     plt.figure(num="step")
+                    #     plt.clf()
+                    #     plt.plot(cost_factor_test.obs[:, 0], cost_factor_test.obs[:, 1], label='origin')
+                    #     plt.plot(cost_factor_test.obs[:, 0], cost_factor_test.reconstructed_signal(), label='reconstructed')
+                    #     plt.xlabel('x')
+                    #     plt.legend()
+                    #     plt.pause(0.01)
 
                     current_idx += block_size
             ## solve the equation directly

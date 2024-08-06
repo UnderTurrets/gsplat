@@ -2,8 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Ellipse
 import torch
-print(torch.utils.cmake_prefix_path)
-print(torch.cuda.is_available())
+
 def plot_gaussian(mu, cov, ax, color='blue'):
     """
     绘制二维高斯分布的等高线
@@ -21,40 +20,18 @@ def plot_gaussian(mu, cov, ax, color='blue'):
                   edgecolor=color, fc='None', lw=2)
     ax.add_patch(ell)
 
-# mu = [0, 0]
-#
-# # 定义不同的协方差矩阵
-# covariances = {
-#     '1': [[1, 0], [0, 1]],
-#     '2': [[1, 0.8], [0.8, 1]],
-#     '3': [[1, -0.8], [-0.8, 1]],
-#     '4': [[2, 0], [0, 0.5]]
-# }
-#
-# fig, axes = plt.subplots(2, 2, figsize=(12, 12))
-#
-# for ax, (title, cov) in zip(axes.flatten(), covariances.items()):
-#     plot_gaussian(mu, cov, ax)
-#     ax.set_xlim(-3, 3)
-#     ax.set_ylim(-3, 3)
-#     ax.set_title(title)
-#     ax.set_xlabel('$X_1$')
-#     ax.set_ylabel('$X_2$')
-#     ax.grid(True)
-#
-# plt.tight_layout()
-# plt.show()
+if __name__ == '__main__':
+    import torch
+    # 创建两个一维张量
+    tensor1 = torch.tensor([1, 2, 3])
+    tensor2 = torch.tensor([4, 5, 6, 8])
+    # 使用torch.cat()拼接这两个张量
+    result = torch.cat((tensor1, tensor2))
+    result2 = result.flatten()
+    result2[0]=99
+    print(result)
+    print(result2)
+    pass
 
-import torch
-
-pixels = torch.tensor([[[1, 2, 2], [3, 4,4]],
-                       [[5, 6,6], [7, 8,8]]],
-                      )
-colors = torch.zeros_like(pixels)  # 这里只是一个示例，假设 colors 全为 0
-
-# 计算残差
-residual = (pixels - colors).flatten()
-
-print(residual)
-print(pixels.shape)
-
+    # in a list, share the memory
+    # flatten() share the memory

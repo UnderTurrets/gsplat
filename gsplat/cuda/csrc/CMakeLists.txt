@@ -9,20 +9,12 @@ set(CMAKE_CUDA_STANDARD 17)
 set(CMAKE_CUDA_COMPILER /usr/local/cuda/bin/nvcc)
 set(CMAKE_CUDA_ARCHITECTURES "70;75;86")
 
-# 设置 CUDA 编译标志
-set(CMAKE_CUDA_FLAGS "")
-set(CMAKE_CUDA_FLAGS_DEBUG "-g")
-set(CMAKE_CUDA_FLAGS_MINSIZEREL "-O1 -DNDEBUG")
-set(CMAKE_CUDA_FLAGS_RELEASE "-O3 -DNDEBUG")
-
 # 设置 Caffe2 使用 CUDNN 和 CUSPARSELT
 set(CAFFE2_USE_CUDNN 1)
 set(CAFFE2_USE_CUSPARSELT 1)
 
 # 设置 Torch 的路径
 set(CMAKE_PREFIX_PATH "/home/cvgluser/Downloads/libtorch-cxx11-abi-shared-with-deps-2.3.1+cu121/libtorch")
-#set(CMAKE_PREFIX_PATH /home/cvgluser/.conda/envs/gsplat/lib/python3.9/site-packages/torch/share/cmake;
-#)
 
 project(gsplat LANGUAGES CXX CUDA)
 set(LIB_NAME gsplat-1.1.1)
