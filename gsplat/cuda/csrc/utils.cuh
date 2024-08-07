@@ -2,10 +2,11 @@
 #define GSPLAT_CUDA_UTILS_H
 
 #include "helpers.cuh"
-
+#include <eigen3/Eigen/Core>
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <torch/extension.h>
+namespace cg = cooperative_groups;
 template <typename T> inline __device__ mat3<T> quat_to_rotmat(const vec4<T> quat) {
     T w = quat[0], x = quat[1], y = quat[2], z = quat[3];
     // normalize
@@ -347,8 +348,55 @@ torch::Tensor parallelize_sparse_matrix(const torch::Tensor& A, const torch::Ten
     torch::Tensor solve = torch::empty_like(b,b.options());
     at::cuda::CUDAStream stream = at::cuda::getCurrentCUDAStream();
 
+    return solve;
 }
 
-
+template <class T, uint32_t block_size>
+__global__ void parallelize_sparse_matrix_kernel(
+                                                const T* __restrict__ A,
+                                                const T* __restrict__ b,
+                                                const uint32_t dim,
+                                                // output
+                                                T* __restrict__ solve) {
+    uint32_t idx = cooperative_groups::this_grid().thread_rank();
+    uint32_t equation_num = dim / block_size +1;
+    if (idx >= equation_num) {
+        return;
+    }else if (idx == equation_num - 1) {
+        Eigen::Matrix<T, block_size, block_size>A_sub;
+        const uint32_t start_idx = (dim-block_size) * dim + (dim-block_size);
+        for (uint32_t i = 0; i < block_size; i++) {
+            for (uint32_t j = 0; j < block_size; j++) {
+                A_sub(i,j) = A[start_idx + i * dim + j];
+            }
+        }
+        Eigen::Matrix<T, block_size, 1> b_sub;
+        for (uint32_t i = 0; i < block_size; i++) {
+            b_sub(i) = b[(dim-block_size) + i];
+        }
+        // 使用LU分解
+        Eigen::Matrix<T, block_size, 1> solve_sub = A_sub.lu().solve(b_sub);
+        for (uint32_t i = 0; i < block_size; i++) {
+            solve[(dim-block_size) + i] = solve_sub(i);
+        }
+    }else {
+        Eigen::Matrix<T, block_size, block_size>A_sub;
+        const uint32_t start_idx = idx * block_size * dim + idx * block_size;
+        for (uint32_t i = 0; i < block_size; i++) {
+            for (uint32_t j = 0; j < block_size; j++) {
+                A_sub(i,j) = A[start_idx + i * dim + j];
+            }
+        }
+        Eigen::Matrix<T, block_size, 1> b_sub;
+        for (uint32_t i = 0; i < block_size; i++) {
+            b_sub(i) = b[idx * block_size + i];
+        }
+        // 使用LU分解
+        Eigen::Matrix<T, block_size, 1> solve_sub = A_sub.lu().solve(b_sub);
+        for (uint32_t i = 0; i < block_size; i++) {
+            solve[idx * block_size + i] = solve_sub(i);
+        }
+    }
+}
 
 #endif // GSPLAT_CUDA_UTILS_H

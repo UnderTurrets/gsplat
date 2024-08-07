@@ -1,6 +1,8 @@
 .clangd
 compile_commands.json
-
+.idea/
+dataset/
+datasets/
 # Visual Studio Code configs.
 .vscode/
 
@@ -118,6 +120,7 @@ venv.bak/
 *.lprof
 
 *build
+cmake-build-*/
 compile_commands.json
 *.dump
 
