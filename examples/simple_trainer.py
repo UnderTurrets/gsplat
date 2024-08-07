@@ -214,22 +214,6 @@ def create_splats_with_optimizers(
 
     splats = torch.nn.ParameterDict({n: v for n, v, _ in params}).to(device)
 
-    # import gsplat.adahessian as adahessian
-    # optimizers = dict()
-    # for name, _, lr in params:
-    #     if name=="sh0" or name=="shN":
-    #         optimizers[name] = (torch.optim.SparseAdam if sparse_grad else torch.optim.Adam)(
-    #                 [{"params": splats[name], "lr": lr * math.sqrt(batch_size)}],
-    #                 eps=1e-15 / math.sqrt(batch_size),
-    #                 betas=(1 - batch_size * (1 - 0.9), 1 - batch_size * (1 - 0.999)),
-    #             )
-    #     else:
-    #         optimizers[name] = (adahessian.Adahessian)(
-    #                 [{"params": splats[name], "lr": lr * math.sqrt(batch_size)}],
-    #                 eps=1e-15 / math.sqrt(batch_size),
-    #                 betas=(1 - batch_size * (1 - 0.9), 1 - batch_size * (1 - 0.999)),
-    #             )
-
     # Scale learning rate based on batch size, reference:
     # https://www.cs.princeton.edu/~smalladi/blog/2024/01/22/SDEs-ScalingRules/
     # Note that this would not make the training exactly equivalent, see

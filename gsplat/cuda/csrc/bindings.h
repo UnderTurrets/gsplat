@@ -223,3 +223,8 @@ compute_relocation_tensor(
     torch::Tensor& binoms,
     const int n_max
 );
+/****************************************************************************************
+ * LM solver
+ ****************************************************************************************/
+// parallelize sovle matrix equation : Ax=b
+torch::Tensor parallelize_sparse_matrix(const torch::Tensor& A, const torch::Tensor& b, const int block_size);

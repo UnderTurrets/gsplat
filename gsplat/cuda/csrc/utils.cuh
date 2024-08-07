@@ -5,7 +5,7 @@
 
 #include <cuda.h>
 #include <cuda_runtime.h>
-
+#include <torch/extension.h>
 template <typename T> inline __device__ mat3<T> quat_to_rotmat(const vec4<T> quat) {
     T w = quat[0], x = quat[1], y = quat[2], z = quat[3];
     // normalize
@@ -17,12 +17,9 @@ template <typename T> inline __device__ mat3<T> quat_to_rotmat(const vec4<T> qua
     T x2 = x * x, y2 = y * y, z2 = z * z;
     T xy = x * y, xz = x * z, yz = y * z;
     T wx = w * x, wy = w * y, wz = w * z;
-    return mat3<T>((1.f - 2.f * (y2 + z2)), (2.f * (xy + wz)),
-                   (2.f * (xz - wy)), // 1st col
-                   (2.f * (xy - wz)), (1.f - 2.f * (x2 + z2)),
-                   (2.f * (yz + wx)), // 2nd col
-                   (2.f * (xz + wy)), (2.f * (yz - wx)),
-                   (1.f - 2.f * (x2 + y2)) // 3rd col
+    return mat3<T>(1.f - 2.f * (y2 + z2), 2.f * (xy + wz),2.f * (xz - wy), // 1st col
+                   2.f * (xy - wz), 1.f - 2.f * (x2 + z2),2.f * (yz + wx), // 2nd col
+                   2.f * (xz + wy), 2.f * (yz - wx),1.f - 2.f * (x2 + y2) // 3rd col
     );
 }
 
@@ -341,5 +338,17 @@ inline __device__ void add_blur_vjp(const T eps2d, const mat2<T> conic_blur,
     v_covar[1][1] +=
         v_sqr_comp * (one_minus_sqr_comp * conic_blur[1][1] - eps2d * det_conic_blur);
 }
+
+torch::Tensor parallelize_sparse_matrix(const torch::Tensor& A, const torch::Tensor& b, const int block_size) {
+    DEVICE_GUARD(A);
+    CHECK_INPUT(A);
+    CHECK_INPUT(b);
+    uint32_t dim = b.size(0);
+    torch::Tensor solve = torch::empty_like(b,b.options());
+    at::cuda::CUDAStream stream = at::cuda::getCurrentCUDAStream();
+
+}
+
+
 
 #endif // GSPLAT_CUDA_UTILS_H
