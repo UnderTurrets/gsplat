@@ -32,4 +32,6 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           &fully_fused_projection_packed_bwd_tensor);
 
     m.def("compute_relocation", &compute_relocation_tensor);
+
+    m.def("parallelize_sparse_matrix", &parallelize_sparse_matrix);
 }

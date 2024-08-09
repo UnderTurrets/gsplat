@@ -227,4 +227,4 @@ compute_relocation_tensor(
  * LM solver
  ****************************************************************************************/
 // parallelize sovle matrix equation : Ax=b
-torch::Tensor parallelize_sparse_matrix(const torch::Tensor& A, const torch::Tensor& b, const int block_size);
+torch::Tensor parallelize_sparse_matrix(const torch::Tensor& A, const torch::Tensor& b, const uint32_t block_size);
