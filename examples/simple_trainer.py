@@ -560,7 +560,7 @@ class Runner:
                     depthloss = F.l1_loss(disp, disp_gt) * self.scene_scale
                     loss += depthloss * cfg.depth_lambda
 
-                loss.backward(create_graph=True)
+                loss.backward()
 
                 self.strategy.step_post_backward(
                     params=self.splats,

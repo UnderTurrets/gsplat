@@ -21,17 +21,4 @@ def plot_gaussian(mu, cov, ax, color='blue'):
     ax.add_patch(ell)
 
 if __name__ == '__main__':
-    import torch
-    # 创建两个一维张量
-    tensor1 = torch.tensor([1, 2, 3])
-    tensor2 = torch.tensor([4, 5, 6, 8])
-    # 使用torch.cat()拼接这两个张量
-    result = torch.cat((tensor1, tensor2))
-    result2 = result.flatten()
-    result2[0]=99
-    print(result)
-    print(result2)
     pass
-
-    # in a list, share the memory
-    # flatten() share the memory
