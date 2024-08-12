@@ -3,6 +3,9 @@
 
 #include "helpers.cuh"
 
+#include <cuda.h>
+#include <cuda_runtime.h>
+
 template <typename T> inline __device__ mat3<T> quat_to_rotmat(const vec4<T> quat) {
     T w = quat[0], x = quat[1], y = quat[2], z = quat[3];
     // normalize

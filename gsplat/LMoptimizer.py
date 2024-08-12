@@ -7,6 +7,7 @@ import torch
 from typing import Any, Dict, Iterable, Union, Callable, List
 from torch import Tensor
 from torch.optim.optimizer import Optimizer
+from .cuda._wrapper import parallelize_sparse_matrix
 
 Params = Union[Iterable[Tensor], Iterable[Dict[str, Any]]]
 State = Dict[str, Any]
@@ -115,8 +116,7 @@ class LevenbergMarquardt(Optimizer):
                 update = (-torch.inverse(A) @ gradient.view(-1, 1)).flatten()
             else:
                 try:
-                    # parallelize_sparse_matrix(A, gradient, block_size)
-                    raise Exception
+                    parallelize_sparse_matrix(A, gradient, block_size)
                 except Exception as error:
                     print(f"\033[91m {error} \033[0m")
                     update = self.solve_sparse_matrix(A, gradient, block_size)

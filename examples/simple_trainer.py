@@ -480,18 +480,18 @@ class Runner:
         trainloader_iter = iter(trainloader)
 
         # Training loop.
-        prof = torch.profiler.profile(
-            schedule=torch.profiler.schedule(wait=1, warmup=1, active=50, repeat=1),
-            on_trace_ready=torch.profiler.tensorboard_trace_handler(f"{self.cfg.result_dir}/tb"),
-            profile_memory=True,
-            record_shapes=True,
-            with_stack=True)
-        prof.start()
+        # prof = torch.profiler.profile(
+        #     schedule=torch.profiler.schedule(wait=1, warmup=1, active=50, repeat=1),
+        #     on_trace_ready=torch.profiler.tensorboard_trace_handler(f"{self.cfg.result_dir}/tb"),
+        #     profile_memory=True,
+        #     record_shapes=True,
+        #     with_stack=True)
+        # prof.start()
         global_tic = time.time()
         pbar = tqdm.tqdm(range(init_step, max_steps))
         try:
             for step in pbar:
-                prof.step()
+                # prof.step()
                 if not cfg.disable_viewer:
                     while self.viewer.state.status == "paused":
                         time.sleep(0.01)
@@ -585,55 +585,6 @@ class Runner:
 
                 loss.backward()
 
-                if isinstance(self.cfg.strategy, DefaultStrategy):
-                    self.cfg.strategy.step_post_backward(
-                        params=self.splats,
-                        optimizers=self.optimizers,
-                        state=self.strategy_state,
-                        step=step,
-                        info=info,
-                        packed=cfg.packed,
-                    )
-                elif isinstance(self.cfg.strategy, MCMCStrategy):
-                    self.cfg.strategy.step_post_backward(
-                        params=self.splats,
-                        optimizers=self.optimizers,
-                        state=self.strategy_state,
-                        step=step,
-                        info=info,
-                        lr=schedulers[0].get_last_lr()[0],
-                    )
-                else:
-                    assert_never(self.cfg.strategy)
-
-                # Turn Gradients into Sparse Tensor before running optimizer
-                if cfg.sparse_grad:
-                    assert cfg.packed, "Sparse gradients only work with packed mode."
-                    gaussian_ids = info["gaussian_ids"]
-                    for k in self.splats.keys():
-                        grad = self.splats[k].grad
-                        if grad is None or grad.is_sparse:
-                            continue
-                        self.splats[k].grad = torch.sparse_coo_tensor(
-                            indices=gaussian_ids[None],  # [1, nnz]
-                            values=grad[gaussian_ids],  # [nnz, ...]
-                            size=self.splats[k].size(),  # [N, ...]
-                            is_coalesced=len(Ks) == 1,
-                        )
-
-                # optimize
-                for optimizer in self.optimizers.values():
-                    optimizer.step()
-                    optimizer.zero_grad(set_to_none=True)
-                for optimizer in self.pose_optimizers:
-                    optimizer.step()
-                    optimizer.zero_grad(set_to_none=True)
-                for optimizer in self.app_optimizers:
-                    optimizer.step()
-                    optimizer.zero_grad(set_to_none=True)
-                for scheduler in schedulers:
-                    scheduler.step()
-
                 # save checkpoint before updating the model
                 if step in [i - 1 for i in cfg.save_steps] or step == max_steps - 1:
                     mem = torch.cuda.max_memory_allocated() / 1024**3
@@ -678,6 +629,55 @@ class Runner:
                         self.writer.add_image("train/render", canvas, step)
                     self.writer.flush()
 
+                if isinstance(self.cfg.strategy, DefaultStrategy):
+                    self.cfg.strategy.step_post_backward(
+                        params=self.splats,
+                        optimizers=self.optimizers,
+                        state=self.strategy_state,
+                        step=step,
+                        info=info,
+                        packed=cfg.packed,
+                    )
+                elif isinstance(self.cfg.strategy, MCMCStrategy):
+                    self.cfg.strategy.step_post_backward(
+                        params=self.splats,
+                        optimizers=self.optimizers,
+                        state=self.strategy_state,
+                        step=step,
+                        info=info,
+                        lr=schedulers[0].get_last_lr()[0],
+                    )
+                else:
+                    assert_never(self.cfg.strategy)
+
+
+                # Turn Gradients into Sparse Tensor before running optimizer
+                if cfg.sparse_grad:
+                    assert cfg.packed, "Sparse gradients only work with packed mode."
+                    gaussian_ids = info["gaussian_ids"]
+                    for k in self.splats.keys():
+                        grad = self.splats[k].grad
+                        if grad is None or grad.is_sparse:
+                            continue
+                        self.splats[k].grad = torch.sparse_coo_tensor(
+                            indices=gaussian_ids[None],  # [1, nnz]
+                            values=grad[gaussian_ids],  # [nnz, ...]
+                            size=self.splats[k].size(),  # [N, ...]
+                            is_coalesced=len(Ks) == 1,
+                        )
+                # optimize
+                for optimizer in self.optimizers.values():
+                    optimizer.step()
+                    optimizer.zero_grad(set_to_none=True)
+                for optimizer in self.pose_optimizers:
+                    optimizer.step()
+                    optimizer.zero_grad(set_to_none=True)
+                for optimizer in self.app_optimizers:
+                    optimizer.step()
+                    optimizer.zero_grad(set_to_none=True)
+                for scheduler in schedulers:
+                    scheduler.step()
+
                 # eval the full set
                 if step in [i - 1 for i in cfg.eval_steps]:
                     self.eval(step)
@@ -704,7 +704,7 @@ class Runner:
                 pbar.set_description(desc)
         except Exception as error:
             print(error)
-            prof.stop()
+            # prof.stop()
 
     @torch.no_grad()
     def eval(self, step: int):
