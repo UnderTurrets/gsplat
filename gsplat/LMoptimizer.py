@@ -10,7 +10,7 @@ from torch.optim.optimizer import (Optimizer, ParamsT, _use_grad_for_differentia
                                    _stack_if_compiling, _dispatch_sqrt, _default_to_fused_or_foreach,
                                    _get_scalar_dtype, _capturable_doc, _differentiable_doc, _foreach_doc,
                                    _fused_doc, _maximize_doc, _view_as_real)
-
+from cuda._wrapper import parallelize_sparse_matrix
 Params = Union[Iterable[Tensor], Iterable[Dict[str, Any]]]
 State = Dict[str, Any]
 LossClosure = Callable[[], float]
@@ -119,8 +119,9 @@ class LevenbergMarquardt(Optimizer):
                 update = (-torch.inverse(A) @ gradient.view(-1, 1)).flatten()
             else:
                 try:
-                    raise Exception("Not implemented yet")
+                    parallelize_sparse_matrix(A, gradient, block_size)
                 except Exception as error:
+                    print(f"\033[91m {error} \033[0m")
                     update = self.solve_sparse_matrix(A, gradient, block_size)
 
             original_params = {p: p.clone() for p in group['params']}

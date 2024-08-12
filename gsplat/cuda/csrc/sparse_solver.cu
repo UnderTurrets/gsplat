@@ -3,77 +3,65 @@
 //
 
 #include "helpers.cuh"
-#include <eigen3/Eigen/Core>
 #include <cuda_runtime.h>
 #include <cuda.h>
+#include <iostream>
+#include <cusolverDn.h>
 #include <torch/extension.h>
 #include "bindings.h"
+namespace cg = cooperative_groups;
 
-template <class T>
-__global__ void parallelize_sparse_matrix_kernel(
-                                                const T* __restrict__ A,
-                                                const T* __restrict__ b,
-                                                const uint32_t dim,
-                                                const uint32_t block_size,
-                                                // output
-                                                T* __restrict__ solve) {
-    uint32_t idx = cooperative_groups::this_grid().thread_rank();
-    uint32_t equation_num = (dim-1) / block_size +1;
-    if (idx >= equation_num) {
-        return;
-    }else if (idx == equation_num - 1) {
-        Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic>A_sub(block_size, block_size);
-        const uint32_t start_idx = (dim-block_size) * dim + (dim-block_size);
-        for (uint32_t i = 0; i < block_size; i++) {
-            for (uint32_t j = 0; j < block_size; j++) {
-                A_sub(i,j) = A[start_idx + i * dim + j];
-            }
-        }
-        Eigen::Matrix<T, Eigen::Dynamic, 1> b_sub(block_size,1);
-        for (uint32_t i = 0; i < block_size; i++) {
-            b_sub(i) = b[(dim-block_size) + i];
-        }
-        // 使用LU分解
-        Eigen::Matrix<T, Eigen::Dynamic, 1> solve_sub = A_sub.lu().solve(b_sub);
-        for (uint32_t i = 0; i < block_size; i++) {
-            solve[(dim-block_size) + i] = solve_sub(i);
-        }
-    }else {
-        Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic>A_sub(block_size,block_size);
-        const uint32_t start_idx = idx * block_size * dim + idx * block_size;
-        for (uint32_t i = 0; i < block_size; i++) {
-            for (uint32_t j = 0; j < block_size; j++) {
-                A_sub(i,j) = A[start_idx + i * dim + j];
-            }
-        }
-        Eigen::Matrix<T, Eigen::Dynamic, 1> b_sub(block_size,1);
-        for (uint32_t i = 0; i < block_size; i++) {
-            b_sub(i) = b[idx * block_size + i];
-        }
-        // 使用LU分解
-        Eigen::Matrix<T, Eigen::Dynamic, 1> solve_sub = A_sub.lu().solve(b_sub);
-        for (uint32_t i = 0; i < block_size; i++) {
-            solve[idx * block_size + i] = solve_sub(i);
-        }
-    }
+void solve_block_with_cusolver(cusolverDnHandle_t cusolverH, float* A_sub, float* b_sub, int block_size) {
+    int* d_info;
+    int* d_pivots;
+    cudaMalloc(&d_info, sizeof(int));
+    cudaMalloc(&d_pivots, block_size * sizeof(int));
+
+    float* d_work;
+    int lwork;
+    cusolverDnSgetrf_bufferSize(cusolverH, block_size, block_size, A_sub, block_size, &lwork);
+    cudaMalloc(&d_work, lwork * sizeof(float));
+
+    cusolverDnSgetrf(cusolverH, block_size, block_size, A_sub, block_size, d_work, d_pivots, d_info);
+    cusolverDnSgetrs(cusolverH, CUBLAS_OP_N, block_size, 1, A_sub, block_size, d_pivots, b_sub, block_size, d_info);
+
+    cudaFree(d_info);
+    cudaFree(d_pivots);
+    cudaFree(d_work);
 }
 
-namespace cg = cooperative_groups;
 torch::Tensor parallelize_sparse_matrix(const torch::Tensor& A, const torch::Tensor& b, const uint32_t block_size) {
     DEVICE_GUARD(A);
     CHECK_INPUT(A);
     CHECK_INPUT(b);
     uint32_t dim = b.size(0);
     torch::Tensor solve = torch::empty_like(b,b.options());
-    at::cuda::CUDAStream stream = at::cuda::getCurrentCUDAStream();
-    uint32_t threads = (dim-1) / block_size + 1;
-    parallelize_sparse_matrix_kernel<float><<<(threads - 1) / N_THREADS +1, N_THREADS, 0, stream>>>(
-            A.data_ptr<float>(),
-            b.data_ptr<float>(),
-            dim,
-            block_size,
-            solve.data_ptr<float>()
-    );
+    cusolverDnHandle_t cusolverH;
+    cusolverDnCreate(&cusolverH);
+    uint32_t current_idx = 0;
+    uint32_t block_num = (dim-1) / block_size + 1;
+    for(int i =0;i<block_num;i++) {
+        uint32_t end_idx = 0;
+        if (current_idx + block_size > dim) {
+            end_idx = dim;
+            current_idx = end_idx - block_size;
+        }else {
+            end_idx = current_idx + block_size;
+        }
+        torch::Tensor A_sub = A.index({
+            torch::indexing::Slice(current_idx, end_idx),
+            torch::indexing::Slice(current_idx, end_idx)});
+        torch::Tensor b_sub = b.index({torch::indexing::Slice(current_idx,end_idx)});
+        solve_block_with_cusolver(
+            cusolverH,
+            A_sub.data_ptr<float>(),
+            b_sub.data_ptr<float>(),
+            block_size
+        );
+        solve.index({torch::indexing::Slice(current_idx, end_idx)}) = b_sub;
+        current_idx += block_size;
+    }
+    cusolverDnDestroy(cusolverH);
     return solve;
 }
 
