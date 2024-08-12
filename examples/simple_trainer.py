@@ -3,22 +3,29 @@ import math
 import os
 import time
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 import imageio
 import nerfview
 import numpy as np
+import yaml
 import torch
 import torch.nn.functional as F
 import tqdm
 import tyro
 import viser
-from datasets.colmap import Dataset, Parser
-from datasets.traj import generate_interpolated_path
+from gsplat.distributed import cli
+from gsplat.rendering import rasterization
+from gsplat.strategy import DefaultStrategy, MCMCStrategy
 from torch import Tensor
+from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.tensorboard import SummaryWriter
 from torchmetrics.image import PeakSignalNoiseRatio, StructuralSimilarityIndexMeasure
 from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
+from typing_extensions import assert_never
+
+from datasets.colmap import Dataset, Parser
+from datasets.traj import generate_interpolated_path
 from utils import AppearanceOptModule, CameraOptModule, knn, rgb_to_sh, set_random_seed
 
 from gsplat.rendering import rasterization,_rasterization
@@ -82,34 +89,16 @@ class Config:
     # Far plane clipping distance
     far_plane: float = 1e10
 
-    # GSs with opacity below this value will be pruned
-    prune_opa: float = 0.005
-    # GSs with image plane gradient above this value will be split/duplicated
-    grow_grad2d: float = 0.0002
-    # GSs with scale below this value will be duplicated. Above will be split
-    grow_scale3d: float = 0.01
-    # GSs with scale above this value will be pruned.
-    prune_scale3d: float = 0.1
-
-    # Start refining GSs after this iteration
-    refine_start_iter: int = 500
-    # Stop refining GSs after this iteration
-    refine_stop_iter: int = 15_000
-    # Reset opacities every this steps
-    reset_every: int = 3000
-    # Refine GSs every this steps
-    refine_every: int = 100
-
+    # Strategy for GS densification
+    strategy: Union[DefaultStrategy, MCMCStrategy] = field(
+        default_factory=DefaultStrategy
+    )
     # Use packed mode for rasterization, this leads to less memory usage but slightly slower.
     packed: bool = False
     # Use sparse gradients for optimization. (experimental)
     sparse_grad: bool = False
-    # Use absolute gradient for pruning. This typically requires larger --grow_grad2d, e.g., 0.0008 or 0.0006
-    absgrad: bool = False
     # Anti-aliasing in rasterization. Might slightly hurt quantitative metrics.
     antialiased: bool = False
-    # Whether to use revised opacity heuristic from arXiv:2404.06109 (experimental)
-    revised_opacity: bool = False
 
     # Use random background for training to discourage transparency
     random_bkgd: bool = False
@@ -147,10 +136,19 @@ class Config:
         self.save_steps = [int(i * factor) for i in self.save_steps]
         self.max_steps = int(self.max_steps * factor)
         self.sh_degree_interval = int(self.sh_degree_interval * factor)
-        self.refine_start_iter = int(self.refine_start_iter * factor)
-        self.refine_stop_iter = int(self.refine_stop_iter * factor)
-        self.reset_every = int(self.reset_every * factor)
-        self.refine_every = int(self.refine_every * factor)
+
+        strategy = self.strategy
+        if isinstance(strategy, DefaultStrategy):
+            strategy.refine_start_iter = int(strategy.refine_start_iter * factor)
+            strategy.refine_stop_iter = int(strategy.refine_stop_iter * factor)
+            strategy.reset_every = int(strategy.reset_every * factor)
+            strategy.refine_every = int(strategy.refine_every * factor)
+        elif isinstance(strategy, MCMCStrategy):
+            strategy.refine_start_iter = int(strategy.refine_start_iter * factor)
+            strategy.refine_stop_iter = int(strategy.refine_stop_iter * factor)
+            strategy.refine_every = int(strategy.refine_every * factor)
+        else:
+            assert_never(strategy)
 
 
 def create_splats_with_optimizers(
@@ -166,6 +164,8 @@ def create_splats_with_optimizers(
     batch_size: int = 1,
     feature_dim: Optional[int] = None,
     device: str = "cuda",
+    world_rank: int = 0,
+    world_size: int = 1,
 ) -> Tuple[torch.nn.ParameterDict, Dict[str, torch.optim.Optimizer]]:
     if init_type == "sfm":
         points = torch.from_numpy(parser.points).float()
@@ -176,7 +176,6 @@ def create_splats_with_optimizers(
     else:
         raise ValueError("Please specify a correct init_type: sfm or random")
 
-    N = points.shape[0]
     # Initialize the GS size to be the average dist of the 3 nearest neighbors
     # 通过scikit库的knn近邻算法选出距离自己最近的三个点并平方，在最后一个维度取平均 [N,3]->[N,]
     # 均方根距离平均
@@ -184,6 +183,13 @@ def create_splats_with_optimizers(
     dist_avg = torch.sqrt(dist2_avg)
     # 基于近邻距离取对数值初始化，并复制成3个相同的值，后续再exp运算，但优化时是根据对数空间的参数进行优化
     scales = torch.log(dist_avg * init_scale).unsqueeze(-1).repeat(1, 3)  # [N, 3]
+
+    # Distribute the GSs to different ranks (also works for single rank)
+    points = points[world_rank::world_size]
+    rgbs = rgbs[world_rank::world_size]
+    scales = scales[world_rank::world_size]
+
+    N = points.shape[0]
     # 生成随机四元数
     quats = torch.rand((N, 4))  # [N, 4]
 
@@ -213,16 +219,17 @@ def create_splats_with_optimizers(
         params.append(("colors", torch.nn.Parameter(colors), 2.5e-3))
 
     splats = torch.nn.ParameterDict({n: v for n, v, _ in params}).to(device)
-
     # Scale learning rate based on batch size, reference:
     # https://www.cs.princeton.edu/~smalladi/blog/2024/01/22/SDEs-ScalingRules/
     # Note that this would not make the training exactly equivalent, see
     # https://arxiv.org/pdf/2402.18824v1
+    BS = batch_size * world_size
     optimizers = {
         name: (torch.optim.SparseAdam if sparse_grad else torch.optim.Adam)(
-            [{"params": splats[name], "lr": lr * math.sqrt(batch_size)}],
-            eps=1e-15 / math.sqrt(batch_size),
-            betas=(1 - batch_size * (1 - 0.9), 1 - batch_size * (1 - 0.999)),
+            [{"params": splats[name], "lr": lr * math.sqrt(BS), "name": name}],
+            eps=1e-15 / math.sqrt(BS),
+            # TODO: check betas logic when BS is larger than 10 betas[0] will be zero.
+            betas=(1 - BS * (1 - 0.9), 1 - BS * (1 - 0.999)),
         )
         for name, _, lr in params
     }
@@ -232,11 +239,16 @@ def create_splats_with_optimizers(
 class Runner:
     """Engine for training and testing."""
 
-    def __init__(self, cfg: Config) -> None:
-        set_random_seed(42)
+    def __init__(
+        self, local_rank: int, world_rank, world_size: int, cfg: Config
+    ) -> None:
+        set_random_seed(42 + local_rank)
 
         self.cfg = cfg
-        self.device = "cuda"
+        self.world_rank = world_rank
+        self.local_rank = local_rank
+        self.world_size = world_size
+        self.device = f"cuda:{local_rank}"
 
         # Where to dump results.
         os.makedirs(cfg.result_dir, exist_ok=True)
@@ -248,6 +260,7 @@ class Runner:
         os.makedirs(self.stats_dir, exist_ok=True)
         self.render_dir = f"{cfg.result_dir}/renders"
         os.makedirs(self.render_dir, exist_ok=True)
+
         # Tensorboard
         self.writer = SummaryWriter(log_dir=f"{cfg.result_dir}/tb")
 
@@ -283,27 +296,22 @@ class Runner:
             batch_size=cfg.batch_size,
             feature_dim=feature_dim,
             device=self.device,
+            world_rank=world_rank,
+            world_size=world_size,
         )
         print("Model initialized. Number of GS:", len(self.splats["means"]))
 
         # Densification Strategy
-        self.strategy = DefaultStrategy(
-            verbose=True,
-            scene_scale=self.scene_scale,
-            prune_opa=cfg.prune_opa,
-            grow_grad2d=cfg.grow_grad2d,
-            grow_scale3d=cfg.grow_scale3d,
-            prune_scale3d=cfg.prune_scale3d,
-            # refine_scale2d_stop_iter=4000, # splatfacto behavior
-            refine_start_iter=cfg.refine_start_iter,
-            refine_stop_iter=cfg.refine_stop_iter,
-            reset_every=cfg.reset_every,
-            refine_every=cfg.refine_every,
-            absgrad=cfg.absgrad,
-            revised_opacity=cfg.revised_opacity,
-        )
-        self.strategy.check_sanity(self.splats, self.optimizers)
-        self.strategy_state = self.strategy.initialize_state()
+        self.cfg.strategy.check_sanity(self.splats, self.optimizers)
+
+        if isinstance(self.cfg.strategy, DefaultStrategy):
+            self.strategy_state = self.cfg.strategy.initialize_state(
+                scene_scale=self.scene_scale
+            )
+        elif isinstance(self.cfg.strategy, MCMCStrategy):
+            self.strategy_state = self.cfg.strategy.initialize_state()
+        else:
+            assert_never(self.cfg.strategy)
 
         self.pose_optimizers = []
         if cfg.pose_opt:
@@ -316,13 +324,18 @@ class Runner:
                     weight_decay=cfg.pose_opt_reg,
                 )
             ]
+            if world_size > 1:
+                self.pose_adjust = DDP(self.pose_adjust)
 
         if cfg.pose_noise > 0.0:
             self.pose_perturb = CameraOptModule(len(self.trainset)).to(self.device)
             self.pose_perturb.random_init(cfg.pose_noise)
+            if world_size > 1:
+                self.pose_perturb = DDP(self.pose_perturb)
 
         self.app_optimizers = []
         if cfg.app_opt:
+            assert feature_dim is not None
             self.app_module = AppearanceOptModule(
                 len(self.trainset), feature_dim, cfg.app_embed_dim, cfg.sh_degree
             ).to(self.device)
@@ -340,6 +353,8 @@ class Runner:
                     lr=cfg.app_opt_lr * math.sqrt(cfg.batch_size),
                 ),
             ]
+            if world_size > 1:
+                self.app_module = DDP(self.app_module)
 
         # Losses & Metrics.
         self.ssim = StructuralSimilarityIndexMeasure(data_range=1.0).to(self.device)
@@ -400,9 +415,14 @@ class Runner:
             width=width,
             height=height,
             packed=self.cfg.packed,
-            absgrad=self.cfg.absgrad,
+            absgrad=(
+                self.cfg.strategy.absgrad
+                if isinstance(self.cfg.strategy, DefaultStrategy)
+                else False
+            ),
             sparse_grad=self.cfg.sparse_grad,
             rasterize_mode=rasterize_mode,
+            distributed=self.world_size > 1,
             **kwargs,
         )
         ## torch complementation
@@ -424,10 +444,13 @@ class Runner:
     def train(self):
         cfg = self.cfg
         device = self.device
+        world_rank = self.world_rank
+        world_size = self.world_size
 
         # Dump cfg.
-        with open(f"{cfg.result_dir}/cfg.json", "w") as f:
-            json.dump(vars(cfg), f)
+        if world_rank == 0:
+            with open(f"{cfg.result_dir}/cfg.yml", "w") as f:
+                yaml.dump(vars(cfg), f)
 
         max_steps = cfg.max_steps
         init_step = 0
@@ -525,7 +548,7 @@ class Runner:
                     bkgd = torch.rand(1, 3, device=device)
                     colors = colors + bkgd * (1.0 - alphas)
 
-                self.strategy.step_pre_backward(
+                self.cfg.strategy.step_pre_backward(
                     params=self.splats,
                     optimizers=self.optimizers,
                     state=self.strategy_state,
@@ -562,13 +585,26 @@ class Runner:
 
                 loss.backward()
 
-                self.strategy.step_post_backward(
-                    params=self.splats,
-                    optimizers=self.optimizers,
-                    state=self.strategy_state,
-                    step=step,
-                    info=info,
-                )
+                if isinstance(self.cfg.strategy, DefaultStrategy):
+                    self.cfg.strategy.step_post_backward(
+                        params=self.splats,
+                        optimizers=self.optimizers,
+                        state=self.strategy_state,
+                        step=step,
+                        info=info,
+                        packed=cfg.packed,
+                    )
+                elif isinstance(self.cfg.strategy, MCMCStrategy):
+                    self.cfg.strategy.step_post_backward(
+                        params=self.splats,
+                        optimizers=self.optimizers,
+                        state=self.strategy_state,
+                        step=step,
+                        info=info,
+                        lr=schedulers[0].get_last_lr()[0],
+                    )
+                else:
+                    assert_never(self.cfg.strategy)
 
                 # Turn Gradients into Sparse Tensor before running optimizer
                 if cfg.sparse_grad:
@@ -598,7 +634,7 @@ class Runner:
                 for scheduler in schedulers:
                     scheduler.step()
 
-                # save checkpoint
+                # save checkpoint before updating the model
                 if step in [i - 1 for i in cfg.save_steps] or step == max_steps - 1:
                     mem = torch.cuda.max_memory_allocated() / 1024**3
                     stats = {
@@ -607,16 +643,27 @@ class Runner:
                         "num_GS": len(self.splats["means"]),
                     }
                     print("Step: ", step, stats)
-                    with open(f"{self.stats_dir}/train_step{step:04d}.json", "w") as f:
+                    with open(
+                        f"{self.stats_dir}/train_step{step:04d}_rank{self.world_rank}.json",
+                        "w",
+                    ) as f:
                         json.dump(stats, f)
+                    data = {"step": step, "splats": self.splats.state_dict()}
+                    if cfg.pose_opt:
+                        if world_size > 1:
+                            data["pose_adjust"] = self.pose_adjust.module.state_dict()
+                        else:
+                            data["pose_adjust"] = self.pose_adjust.state_dict()
+                    if cfg.app_opt:
+                        if world_size > 1:
+                            data["app_module"] = self.app_module.module.state_dict()
+                        else:
+                            data["app_module"] = self.app_module.state_dict()
                     torch.save(
-                        {
-                            "step": step,
-                            "splats": self.splats.state_dict(),
-                        },
-                        f"{self.ckpt_dir}/ckpt_{step}.pt",
+                        data, f"{self.ckpt_dir}/ckpt_{step}_rank{self.world_rank}.pt"
                     )
-                if cfg.tb_every > 0 and step % cfg.tb_every == 0:
+
+                if world_rank == 0 and cfg.tb_every > 0 and step % cfg.tb_every == 0:
                     mem = torch.cuda.max_memory_allocated() / 1024**3
                     self.writer.add_scalar("train/loss", loss.item(), step)
                     self.writer.add_scalar("train/l1loss", l1loss.item(), step)
@@ -632,7 +679,7 @@ class Runner:
                     self.writer.flush()
 
                 # eval the full set
-                if step in [i - 1 for i in cfg.eval_steps] or step == max_steps - 1:
+                if step in [i - 1 for i in cfg.eval_steps]:
                     self.eval(step)
                     self.render_traj(step)
 
@@ -665,6 +712,8 @@ class Runner:
         print("Running evaluation...")
         cfg = self.cfg
         device = self.device
+        world_rank = self.world_rank
+        world_size = self.world_size
 
         valloader = torch.utils.data.DataLoader(
             self.valset, batch_size=1, shuffle=False, num_workers=1
@@ -692,42 +741,45 @@ class Runner:
             torch.cuda.synchronize()
             ellipse_time += time.time() - tic
 
-            # write images
-            canvas = torch.cat([pixels, colors], dim=2).squeeze(0).cpu().numpy()
-            imageio.imwrite(
-                f"{self.render_dir}/val_{i:04d}.png", (canvas * 255).astype(np.uint8)
+            if world_rank == 0:
+                # write images
+                canvas = torch.cat([pixels, colors], dim=2).squeeze(0).cpu().numpy()
+                imageio.imwrite(
+                    f"{self.render_dir}/val_{i:04d}.png",
+                    (canvas * 255).astype(np.uint8),
+                )
+
+                pixels = pixels.permute(0, 3, 1, 2)  # [1, 3, H, W]
+                colors = colors.permute(0, 3, 1, 2)  # [1, 3, H, W]
+                metrics["psnr"].append(self.psnr(colors, pixels))
+                metrics["ssim"].append(self.ssim(colors, pixels))
+                metrics["lpips"].append(self.lpips(colors, pixels))
+
+        if world_rank == 0:
+            ellipse_time /= len(valloader)
+
+            psnr = torch.stack(metrics["psnr"]).mean()
+            ssim = torch.stack(metrics["ssim"]).mean()
+            lpips = torch.stack(metrics["lpips"]).mean()
+            print(
+                f"PSNR: {psnr.item():.3f}, SSIM: {ssim.item():.4f}, LPIPS: {lpips.item():.3f} "
+                f"Time: {ellipse_time:.3f}s/image "
+                f"Number of GS: {len(self.splats['means'])}"
             )
-
-            pixels = pixels.permute(0, 3, 1, 2)  # [1, 3, H, W]
-            colors = colors.permute(0, 3, 1, 2)  # [1, 3, H, W]
-            metrics["psnr"].append(self.psnr(colors, pixels))
-            metrics["ssim"].append(self.ssim(colors, pixels))
-            metrics["lpips"].append(self.lpips(colors, pixels))
-
-        ellipse_time /= len(valloader)
-
-        psnr = torch.stack(metrics["psnr"]).mean()
-        ssim = torch.stack(metrics["ssim"]).mean()
-        lpips = torch.stack(metrics["lpips"]).mean()
-        print(
-            f"PSNR: {psnr.item():.3f}, SSIM: {ssim.item():.4f}, LPIPS: {lpips.item():.3f} "
-            f"Time: {ellipse_time:.3f}s/image "
-            f"Number of GS: {len(self.splats['means'])}"
-        )
-        # save stats as json
-        stats = {
-            "psnr": psnr.item(),
-            "ssim": ssim.item(),
-            "lpips": lpips.item(),
-            "ellipse_time": ellipse_time,
-            "num_GS": len(self.splats["means"]),
-        }
-        with open(f"{self.stats_dir}/val_step{step:04d}.json", "w") as f:
-            json.dump(stats, f)
-        # save stats to tensorboard
-        for k, v in stats.items():
-            self.writer.add_scalar(f"val/{k}", v, step)
-        self.writer.flush()
+            # save stats as json
+            stats = {
+                "psnr": psnr.item(),
+                "ssim": ssim.item(),
+                "lpips": lpips.item(),
+                "ellipse_time": ellipse_time,
+                "num_GS": len(self.splats["means"]),
+            }
+            with open(f"{self.stats_dir}/val_step{step:04d}.json", "w") as f:
+                json.dump(stats, f)
+            # save stats to tensorboard
+            for k, v in stats.items():
+                self.writer.add_scalar(f"val/{k}", v, step)
+            self.writer.flush()
 
     @torch.no_grad()
     def render_traj(self, step: int):
@@ -804,8 +856,13 @@ class Runner:
         return render_colors[0].cpu().numpy()
 
 
-def main(cfg: Config):
-    runner = Runner(cfg)
+def main(local_rank: int, world_rank, world_size: int, cfg: Config):
+    if world_size > 1 and not cfg.disable_viewer:
+        cfg.disable_viewer = True
+        if world_rank == 0:
+            print("Viewer is disabled in distributed training.")
+
+    runner = Runner(local_rank, world_rank, world_size, cfg)
 
     if cfg.ckpt is not None:
         # run eval only
@@ -823,6 +880,48 @@ def main(cfg: Config):
 
 
 if __name__ == "__main__":
-    cfg = tyro.cli(Config)
+    """
+    Usage:
+
+    ```bash
+    # Single GPU training
+    CUDA_VISIBLE_DEVICES=0 python simple_trainer.py default
+
+    # Distributed training on 4 GPUs: Effectively 4x batch size so run 4x less steps.
+    CUDA_VISIBLE_DEVICES=0,1,2,3 python simple_trainer.py default --steps_scaler 0.25
+
+    """
+
+    # Config objects we can choose between.
+    # Each is a tuple of (CLI description, config object).
+    configs = {
+        "default": (
+            "Gaussian splatting training using densification heuristics from the original paper.",
+            Config(
+                strategy=DefaultStrategy(verbose=True),
+            ),
+        ),
+        "mcmc": (
+            "Gaussian splatting training using densification  from the paper '3D Gaussian Splatting as Markov Chain Monte Carlo'.",
+            Config(
+                init_opa=0.5,
+                init_scale=0.1,
+                strategy=MCMCStrategy(verbose=True),
+            ),
+        ),
+    }
+
+    # We're going to do some advanced tyro stuff to make the CLI nicer.
+    #
+    # (1) Build a union type that lets us choose between the two config
+    # objects.
+    subcommand_type = tyro.extras.subcommand_type_from_defaults(
+        defaults={k: v[1] for k, v in configs.items()},
+        descriptions={k: v[0] for k, v in configs.items()},
+    )
+    # (2) Don't let the user override the strategy type provided by the default that they choose.
+    subcommand_type = tyro.conf.configure(tyro.conf.AvoidSubcommands)(subcommand_type)
+
+    cfg = tyro.cli(subcommand_type)
     cfg.adjust_steps(cfg.steps_scaler)
-    main(cfg)
+    cli(main, cfg, verbose=True)

@@ -150,12 +150,15 @@ inline __device__ void persp_proj(
 
     T tan_fovx = 0.5f * width / fx;
     T tan_fovy = 0.5f * height / fy;
-    T lim_x = 1.3f * tan_fovx;
-    T lim_y = 1.3f * tan_fovy;
+    T lim_x_pos = (width - cx) / fx + 0.3f * tan_fovx;
+    T lim_x_neg = cx / fx + 0.3f * tan_fovx;
+    T lim_y_pos = (height - cy) / fy + 0.3f * tan_fovy;
+    T lim_y_neg = cy / fy + 0.3f * tan_fovy;
+
     T rz2 = rz * rz;
-    // tx,ty限制在正负lim中间
-    T tx = z * min(lim_x, max(-lim_x, x * rz));
-    T ty = z * min(lim_y, max(-lim_y, y * rz));
+    T tx = z * min(lim_x_pos, max(-lim_x_neg, x * rz));
+    T ty = z * min(lim_y_pos, max(-lim_y_neg, y * rz));
+
     // mat3x2 is 3 columns x 2 rows.
     // J是mean2d对mean3d的jacobian（将x换成经限制的tx,y换成经限制的ty,z不变）
     mat3x2<T> J = mat3x2<T>(fx * rz, 0.f,                  // 1st column
@@ -178,13 +181,15 @@ inline __device__ void persp_proj_vjp(
 
     T tan_fovx = 0.5f * width / fx;
     T tan_fovy = 0.5f * height / fy;
-    T lim_x = 1.3f * tan_fovx;
-    T lim_y = 1.3f * tan_fovy;
+    T lim_x_pos = (width - cx) / fx + 0.3f * tan_fovx;
+    T lim_x_neg = cx / fx + 0.3f * tan_fovx;
+    T lim_y_pos = (height - cy) / fy + 0.3f * tan_fovy;
+    T lim_y_neg = cy / fy + 0.3f * tan_fovy;
 
     T rz = 1.f / z;
     T rz2 = rz * rz;
-    T tx = z * min(lim_x, max(-lim_x, x * rz));
-    T ty = z * min(lim_y, max(-lim_y, y * rz));
+    T tx = z * min(lim_x_pos, max(-lim_x_neg, x * rz));
+    T ty = z * min(lim_y_pos, max(-lim_y_neg, y * rz));
 
     // mat3x2 is 3 columns x 2 rows.
     mat3x2<T> J = mat3x2<T>(fx * rz, 0.f,                  // 1st column
@@ -212,12 +217,12 @@ inline __device__ void persp_proj_vjp(
     // df/dz = -fx * rz2 * df/dJ_00 - fy * rz2 * df/dJ_11
     //         + 2 * fx * tx * rz3 * df/dJ_02 + 2 * fy * ty * rz3
     // fov clipping
-    if (x * rz <= lim_x && x * rz >= -lim_x) {
+    if (x * rz <= lim_x_pos && x * rz >= -lim_x_neg) {
         v_mean3d_c.x += -fx * rz2 * v_J[2][0];
     } else {
         v_mean3d_c.z += -fx * rz3 * v_J[2][0] * tx;
     }
-    if (y * rz <= lim_y && y * rz >= -lim_y) {
+    if (y * rz <= lim_y_pos && y * rz >= -lim_y_neg) {
         v_mean3d_c.y += -fy * rz2 * v_J[2][1];
     } else {
         v_mean3d_c.z += -fy * rz3 * v_J[2][1] * ty;
