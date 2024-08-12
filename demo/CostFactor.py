@@ -2,9 +2,7 @@ import os.path
 import numpy
 import numpy as np
 import random
-from Environment.Base import CostFactor
-import torch
-import math
+from .Base import CostFactor
 from typing import List, Tuple
 from numpy import ndarray
 from sklearn.neighbors import NearestNeighbors
@@ -229,7 +227,7 @@ class CostFactor_1DGS(CostFactor):
                 ## ============================create target by file============================
                 import pandas as pd
                 target = pd.read_csv(
-                    rf"{os.path.dirname(__file__)}/../Introduction-to-Gaussian-Splatting/DailyDelhiClimateTest.csv")[
+                    rf"{os.path.dirname(__file__)}/Introduction-to-Gaussian-Splatting/DailyDelhiClimateTest.csv")[
                     'meantemp']
                 ## 设置移动平均窗口大小
                 window_size = 8

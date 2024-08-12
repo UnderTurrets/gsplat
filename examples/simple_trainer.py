@@ -919,6 +919,7 @@ if __name__ == "__main__":
         defaults={k: v[1] for k, v in configs.items()},
         descriptions={k: v[0] for k, v in configs.items()},
     )
+
     # (2) Don't let the user override the strategy type provided by the default that they choose.
     subcommand_type = tyro.conf.configure(tyro.conf.AvoidSubcommands)(subcommand_type)
 

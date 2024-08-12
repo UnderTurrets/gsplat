@@ -4,8 +4,6 @@
 
 #include "helpers.cuh"
 #include <cuda_runtime.h>
-#include <cuda.h>
-#include <iostream>
 #include <cusolverDn.h>
 #include <torch/extension.h>
 #include "bindings.h"

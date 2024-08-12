@@ -1,7 +1,6 @@
 # 从环境模块中导入成本因子类和求解器类
-from Environment.Base import CostFactor
-from Environment.CostFactor import CostFactor_1DGS
-from Environment.Classical_Solver import Classical_NLS_Solver, Classical_GD_Solver
+from .CostFactor import CostFactor_1DGS
+from .Classical_Solver import Classical_NLS_Solver, Classical_GD_Solver
 import numpy
 import pandas as pd
 import seaborn as sns
@@ -10,8 +9,7 @@ import time
 import torch
 from torch import tensor
 from tqdm import tqdm
-from typing import List, Optional, Union
-import math
+from typing import List, Optional
 
 Params = List[tensor]
 
@@ -104,7 +102,7 @@ if __name__ == '__main__':
 
         ## adam
         # lr = 5e-3
-        # costFunc1DGS_adam_optimize(cost_factor, max_iterations=1000, lr=lr, show_process=True)
+        # costFunc1DGS_adam_optimize(cost_factor, max_iterations=100, lr=lr, show_process=True)
 
         ## LM
         # start_time = time.time()
@@ -114,13 +112,13 @@ if __name__ == '__main__':
         #              'Epoch': f'Epoch {e_i}'})
 
         ## sparse LM
-        # start_time = time.time()
-        # _, _, SparseLM_solveTime = optimizer_nls_sparse.solve(cost_factor, block_size=50, show_process=True,
-        #                                                       show_result=True)
-        # end_time = time.time()
-        # data.append(
-        #     {'Method': 'naive nls sparse', 'Iteration': optimizer_nls_sparse.iteration, 'Time': end_time - start_time,
-        #      'Epoch': f'Epoch {e_i}'})
+        start_time = time.time()
+        _, _, SparseLM_solveTime = optimizer_nls_sparse.solve(cost_factor, block_size=50, show_process=True,
+                                                              show_result=True)
+        end_time = time.time()
+        data.append(
+            {'Method': 'naive nls sparse', 'Iteration': optimizer_nls_sparse.iteration, 'Time': end_time - start_time,
+             'Epoch': f'Epoch {e_i}'})
 
         ## GD
         # start_time = time.time()

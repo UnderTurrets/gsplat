@@ -3,7 +3,7 @@ import numpy
 import numpy as np
 import copy
 from tqdm import tqdm
-from Environment.Base import CostFactor, SolverFactor
+from .Base import CostFactor, SolverFactor
 import scipy.sparse as sp
 import scipy.sparse.linalg as splinalg
 from typing import Optional
