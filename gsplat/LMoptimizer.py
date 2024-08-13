@@ -116,7 +116,7 @@ class LevenbergMarquardt(Optimizer):
                 update = (-torch.inverse(A) @ gradient.view(-1, 1)).flatten()
             else:
                 try:
-                    parallelize_sparse_matrix(A, gradient, block_size)
+                    update = parallelize_sparse_matrix(A, gradient, block_size)
                 except Exception as error:
                     print(f"\033[91m {error} \033[0m")
                     update = self.solve_sparse_matrix(A, gradient, block_size)

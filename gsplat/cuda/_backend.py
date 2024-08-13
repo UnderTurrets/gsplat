@@ -90,6 +90,7 @@ except ImportError:
         glm_path = os.path.join(current_dir, "csrc", "third_party", "glm")
 
         extra_include_paths = [os.path.join(PATH, "csrc/"), glm_path]
+        extra_include_paths.append("/usr/local/cuda/include")
         extra_cflags = ["-O3"]
         if NO_FAST_MATH:
             extra_cuda_cflags = ["-O3"]
@@ -118,6 +119,7 @@ except ImportError:
                 extra_cuda_cflags=extra_cuda_cflags,
                 extra_include_paths=extra_include_paths,
                 build_directory=build_dir,
+                extra_ldflags=['-lcusolver']
             )
         else:
             # Build from scratch. Remove the build directory just to be safe: pytorch jit might stuck

@@ -10,10 +10,10 @@ import torch
 import numpy
 if __name__ == '__main__':
     def costFunc1DGS_LM_optimize(costF: CostFactor_1DGS, max_iterations: int = 2000, show_process: bool = False):
-        observes = torch.tensor(data=costF.obs, requires_grad=True, dtype=torch.float32)
-        p1 = torch.tensor(data=costF.x.reshape(-1, 3)[:, 0], requires_grad=True, dtype=torch.float32)
-        p2 = torch.tensor(data=costF.x.reshape(-1, 3)[:, 1], requires_grad=True, dtype=torch.float32)
-        p3 = torch.tensor(data=costF.x.reshape(-1, 3)[:, 2], requires_grad=True, dtype=torch.float32)
+        observes = torch.tensor(data=costF.obs, requires_grad=True, dtype=torch.float32 ,device='cuda')
+        p1 = torch.tensor(data=costF.x.reshape(-1, 3)[:, 0], requires_grad=True, dtype=torch.float32, device='cuda')
+        p2 = torch.tensor(data=costF.x.reshape(-1, 3)[:, 1], requires_grad=True, dtype=torch.float32, device='cuda')
+        p3 = torch.tensor(data=costF.x.reshape(-1, 3)[:, 2], requires_grad=True, dtype=torch.float32, device='cuda')
         obs_dim = observes.shape[0]
         gaussian_num = p1.shape[0]
 
@@ -29,7 +29,7 @@ if __name__ == '__main__':
             return p1, variances, opacity
 
         def get_jacobain():
-            J = torch.zeros(size=(obs_dim, 3 * gaussian_num))
+            J = torch.zeros(size=(obs_dim, 3 * gaussian_num), device=observes.device)
             means, variances, opacity = get_parameters()
             for i in range(gaussian_num):
                 if (
@@ -85,14 +85,14 @@ if __name__ == '__main__':
             if show_process:
                 plt.clf()
                 plt.subplot(3, 1, 1)
-                plt.plot(observes[:, 0].detach().numpy(), observes[:, 1].detach().numpy(), label='origin')
-                plt.plot(observes[:, 0].detach().numpy(), y_data.detach().numpy(), label='reconstructed')
+                plt.plot(observes[:, 0].cpu().detach().numpy(), observes[:, 1].cpu().detach().numpy(), label='origin')
+                plt.plot(observes[:, 0].cpu().detach().numpy(), y_data.cpu().detach().numpy(), label='reconstructed')
                 plt.title(f'LM')
                 plt.xlabel('x')
                 plt.legend()
                 plt.subplot(3, 1, 2)
                 for single_y_data in y_data_list:
-                    plt.plot(observes[:, 0].detach().numpy(), single_y_data.detach().numpy(), linewidth=0.5)
+                    plt.plot(observes[:, 0].cpu().detach().numpy(), single_y_data.cpu().detach().numpy(), linewidth=0.5)
                 plt.subplot(3, 1, 3)
                 plt.plot(panr_history, label='psnr')
                 plt.legend()
@@ -109,7 +109,7 @@ if __name__ == '__main__':
                 y_data_stack = torch.stack(y_data_list, dim=0)
                 y_data = torch.sum(y_data_stack, dim=0)
                 residual = observes[:, 1] - y_data
-                _weights = torch.ones(size=(costF.obs_dim,)).repeat(costF.residual_dim)
+                _weights = torch.ones(size=(costF.obs_dim,),device='cuda').repeat(costF.residual_dim)
                 loss = 0.5 * torch.sum(torch.square(residual * _weights))
                 loss.backward()
                 return loss.item()

@@ -1,8 +1,9 @@
 cmake_minimum_required(VERSION 3.20 FATAL_ERROR)
 
+project(gsplat LANGUAGES CXX CUDA)
+
 # 设置 C++ 和 CUDA 标准
 set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CUDA_STANDARD 17)
 
 # 设置 CUDA 编译器和架构
@@ -16,38 +17,39 @@ set(CAFFE2_USE_CUSPARSELT 1)
 # 设置 Torch 的路径
 set(CMAKE_PREFIX_PATH "/home/cvgluser/Downloads/libtorch-cxx11-abi-shared-with-deps-2.3.1+cu121/libtorch")
 
-project(gsplat LANGUAGES CXX CUDA)
-set(LIB_NAME gsplat-1.1.1)
 # 查找 Torch 库
 find_package(Torch REQUIRED)
 find_package(glm REQUIRED)
-# 设置 C++ 编译标志
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
+find_package(Python3 COMPONENTS Development REQUIRED)
 
 # 搜索源文件
-file(GLOB source
-    "*.cu"
-    "*.cuh"
-    "*.cpp"
-    "*.h"
+file(GLOB source "*.h" "*.cu" "*.cuh" "*.cpp")
+list(REMOVE_ITEM ${source} "ext.cpp")
+include_directories(${CMAKE_CURRENT_SOURCE_DIR})
+
+# 创建可执行文件
+add_library(${PROJECT_NAME} ${source})
+
+# 设置 CUDA 架构
+set_target_properties(${PROJECT_NAME} PROPERTIES CUDA_ARCHITECTURES "70;75;86")
+
+# 链接必要的库
+target_link_libraries(${PROJECT_NAME} PRIVATE
+    ${TORCH_LIBRARIES}
+    glm
+    cusolver
+    cudart
+    cublas
+    Python3::Python
 )
-list(REMOVE_ITEM ${source} "main.cpp")
 
-# 由于v1.1.1改成了模版编程，此条命令可能会出现问题
-add_library(${LIB_NAME} ${source})
-
-# 设置属性
-set_target_properties(${LIB_NAME} PROPERTIES CUDA_ARCHITECTURES "70;75;86")
-
-# 包含目录
-target_include_directories(${LIB_NAME} PUBLIC
-    /usr/include/python3.8
+# 设置 PyTorch 包的头文件路径
+target_include_directories(${PROJECT_NAME} PUBLIC
+    ${TORCH_INCLUDE_DIRS}
     ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES}
+    ${Python3_INCLUDE_DIRS}
 )
 
-# 链接 Torch 库
-target_link_libraries(${LIB_NAME} ${TORCH_LIBRARIES})
-target_link_libraries(${LIB_NAME} glm)
-add_executable(${PROJECT_NAME} main.cpp)
-target_link_libraries(${PROJECT_NAME}  ${LIB_NAME})
-
+add_executable(testLM test/testLM.cpp)
+target_link_directories(testLM PUBLIC ${PROJECT_NAME})
+target_link_libraries(testLM ${PROJECT_NAME})

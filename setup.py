@@ -97,6 +97,9 @@ def get_extensions():
 
     current_dir = pathlib.Path(__file__).parent.resolve()
     glm_path = os.path.join(current_dir, "gsplat", "cuda", "csrc", "third_party", "glm")
+
+    extra_link_args.append('-lcusolver')
+
     # extension_v1 = CUDAExtension(
     #     "gsplat.csrc_legacy",
     #     sources_v1,

@@ -1,3 +1,6 @@
+#ifndef __BINDINGS_H__
+#define __BINDINGS_H__
+
 #include <c10/cuda/CUDAGuard.h>
 #include <torch/extension.h>
 #include <tuple>
@@ -227,4 +230,8 @@ compute_relocation_tensor(
  * LM solver
  ****************************************************************************************/
 // parallelize sovle matrix equation : Ax=b
-//torch::Tensor parallelize_sparse_matrix(const torch::Tensor& A, const torch::Tensor& b, const uint32_t block_size);
+torch::Tensor parallelize_sparse_matrix(const torch::Tensor& A, const torch::Tensor& b, const uint32_t block_size);
+
+
+
+#endif

@@ -584,7 +584,7 @@ def parallelize_sparse_matrix(A: Tensor, b: Tensor, block_size: int) -> Tensor:
     assert b.dim() == 1, "b must be a vector"
     assert A.shape[0] == A.shape[1], 'A must be a square matrix'
     assert A.shape[0] == b.shape[0], "A.shape[0] must be equal to b.shape[0]"
-    solve = _make_lazy_cuda_func("parallelize_sparse_matrix")(A, b, block_size)
+    solve = _make_lazy_cuda_func("parallelize_sparse_matrix")(A.contiguous(), b.contiguous(), block_size)
     return solve
 
 

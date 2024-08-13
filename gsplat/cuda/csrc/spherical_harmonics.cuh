@@ -1,7 +1,7 @@
-#include "bindings.h"
+#ifndef SPHERICAL_HARMONICS_CUH
+#define SPHERICAL_HARMONICS_CUH
 #include "types.cuh"
 #include "utils.cuh"
-
 #include <cuda_runtime.h>
 
 // Evaluate spherical harmonics bases at unit direction for high orders using
@@ -351,3 +351,5 @@ sh_coeffs_to_color_fast_vjp(const uint32_t degree, // degree of SH to be evaluat
         v_dir->z = v_d.z;
     }
 }
+
+#endif
