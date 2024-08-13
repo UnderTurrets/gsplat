@@ -35,7 +35,7 @@ from gsplat.strategy import DefaultStrategy
 @dataclass
 class Config:
     # Disable viewer
-    disable_viewer: bool = True
+    disable_viewer: bool = False
     # Path to the .pt file. If provide, it will skip training and render a video
     ckpt: Optional[str] = None
 
@@ -585,6 +585,30 @@ class Runner:
 
                 loss.backward()
 
+                desc = f"loss={loss.item():.3f}| " f"sh degree={sh_degree_to_use}| "
+                if cfg.depth_loss:
+                    desc += f"depth loss={depthloss.item():.6f}| "
+                if cfg.pose_opt and cfg.pose_noise:
+                    # monitor the pose error if we inject noise
+                    pose_err = F.l1_loss(camtoworlds_gt, camtoworlds)
+                    desc += f"pose err={pose_err.item():.6f}| "
+                pbar.set_description(desc)
+
+                if world_rank == 0 and cfg.tb_every > 0 and step % cfg.tb_every == 0:
+                    mem = torch.cuda.max_memory_allocated() / 1024**3
+                    self.writer.add_scalar("train/loss", loss.item(), step)
+                    self.writer.add_scalar("train/l1loss", l1loss.item(), step)
+                    self.writer.add_scalar("train/ssimloss", ssimloss.item(), step)
+                    self.writer.add_scalar("train/num_GS", len(self.splats["means"]), step)
+                    self.writer.add_scalar("train/mem", mem, step)
+                    if cfg.depth_loss:
+                        self.writer.add_scalar("train/depthloss", depthloss.item(), step)
+                    if cfg.tb_save_image:
+                        canvas = torch.cat([pixels, colors], dim=2).detach().cpu().numpy()
+                        canvas = canvas.reshape(-1, *canvas.shape[2:])
+                        self.writer.add_image("train/render", canvas, step)
+                    self.writer.flush()
+
                 # save checkpoint before updating the model
                 if step in [i - 1 for i in cfg.save_steps] or step == max_steps - 1:
                     mem = torch.cuda.max_memory_allocated() / 1024**3
@@ -613,21 +637,6 @@ class Runner:
                     torch.save(
                         data, f"{self.ckpt_dir}/ckpt_{step}_rank{self.world_rank}.pt"
                     )
-
-                if world_rank == 0 and cfg.tb_every > 0 and step % cfg.tb_every == 0:
-                    mem = torch.cuda.max_memory_allocated() / 1024**3
-                    self.writer.add_scalar("train/loss", loss.item(), step)
-                    self.writer.add_scalar("train/l1loss", l1loss.item(), step)
-                    self.writer.add_scalar("train/ssimloss", ssimloss.item(), step)
-                    self.writer.add_scalar("train/num_GS", len(self.splats["means"]), step)
-                    self.writer.add_scalar("train/mem", mem, step)
-                    if cfg.depth_loss:
-                        self.writer.add_scalar("train/depthloss", depthloss.item(), step)
-                    if cfg.tb_save_image:
-                        canvas = torch.cat([pixels, colors], dim=2).detach().cpu().numpy()
-                        canvas = canvas.reshape(-1, *canvas.shape[2:])
-                        self.writer.add_image("train/render", canvas, step)
-                    self.writer.flush()
 
                 if isinstance(self.cfg.strategy, DefaultStrategy):
                     self.cfg.strategy.step_post_backward(
@@ -694,14 +703,6 @@ class Runner:
                     # Update the scene.
                     self.viewer.update(step, num_train_rays_per_step)
 
-                desc = f"loss={loss.item():.3f}| " f"sh degree={sh_degree_to_use}| "
-                if cfg.depth_loss:
-                    desc += f"depth loss={depthloss.item():.6f}| "
-                if cfg.pose_opt and cfg.pose_noise:
-                    # monitor the pose error if we inject noise
-                    pose_err = F.l1_loss(camtoworlds_gt, camtoworlds)
-                    desc += f"pose err={pose_err.item():.6f}| "
-                pbar.set_description(desc)
         except Exception as error:
             print(error)
             # prof.stop()
