@@ -9,11 +9,11 @@ from gsplat.LMoptimizer import LevenbergMarquardt
 import torch
 import numpy
 if __name__ == '__main__':
-    def costFunc1DGS_LM_optimize(costF: CostFactor_1DGS, max_iterations: int = 2000, show_process: bool = False):
-        observes = torch.tensor(data=costF.obs, requires_grad=True, dtype=torch.float32 ,device='cuda')
-        p1 = torch.tensor(data=costF.x.reshape(-1, 3)[:, 0], requires_grad=True, dtype=torch.float32, device='cuda')
-        p2 = torch.tensor(data=costF.x.reshape(-1, 3)[:, 1], requires_grad=True, dtype=torch.float32, device='cuda')
-        p3 = torch.tensor(data=costF.x.reshape(-1, 3)[:, 2], requires_grad=True, dtype=torch.float32, device='cuda')
+    def costFunc1DGS_LM_optimize(costF: CostFactor_1DGS, max_iterations: int = 2000, show_process: bool = False, device='cuda'):
+        observes = torch.tensor(data=costF.obs, requires_grad=True, dtype=torch.float32 ,device=device)
+        p1 = torch.tensor(data=costF.x.reshape(-1, 3)[:, 0], requires_grad=True, dtype=torch.float32, device=device)
+        p2 = torch.tensor(data=costF.x.reshape(-1, 3)[:, 1], requires_grad=True, dtype=torch.float32, device=device)
+        p3 = torch.tensor(data=costF.x.reshape(-1, 3)[:, 2], requires_grad=True, dtype=torch.float32, device=device)
         obs_dim = observes.shape[0]
         gaussian_num = p1.shape[0]
 
@@ -109,7 +109,7 @@ if __name__ == '__main__':
                 y_data_stack = torch.stack(y_data_list, dim=0)
                 y_data = torch.sum(y_data_stack, dim=0)
                 residual = observes[:, 1] - y_data
-                _weights = torch.ones(size=(costF.obs_dim,),device='cuda').repeat(costF.residual_dim)
+                _weights = torch.ones(size=(costF.obs_dim,),device=device).repeat(costF.residual_dim)
                 loss = 0.5 * torch.sum(torch.square(residual * _weights))
                 loss.backward()
                 return loss.item()
@@ -133,5 +133,5 @@ if __name__ == '__main__':
         return average_iteration_speed
 
 
-    cost_factor = CostFactor_1DGS(gaussian_num=50, is_great_init=False, parameter_space=0)
-    costFunc1DGS_LM_optimize(costF=cost_factor, max_iterations=100, show_process=True)
+    cost_factor = CostFactor_1DGS(gaussian_num=1000, is_great_init=False, parameter_space=0)
+    costFunc1DGS_LM_optimize(costF=cost_factor, max_iterations=100, show_process=False, device='cuda')

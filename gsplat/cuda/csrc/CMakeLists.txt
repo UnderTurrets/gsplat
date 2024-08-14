@@ -50,6 +50,6 @@ target_include_directories(${PROJECT_NAME} PUBLIC
     ${Python3_INCLUDE_DIRS}
 )
 
-add_executable(testLM test/testLM.cpp)
-target_link_directories(testLM PUBLIC ${PROJECT_NAME})
-target_link_libraries(testLM ${PROJECT_NAME})
+add_executable(testSparse_solver test/testSparse_solver.cpp)
+target_link_directories(testSparse_solver PUBLIC ${PROJECT_NAME})
+target_link_libraries(testSparse_solver ${PROJECT_NAME})

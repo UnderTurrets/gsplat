@@ -3,12 +3,8 @@
 //
 #include "bindings.h"
 #include <cusolverDn.h>
-#include <cooperative_groups.h>
-#include <cooperative_groups/reduce.h>
-#include <cub/cub.cuh>
 #include <cuda.h>
 #include <cuda_runtime.h>
-namespace cg = cooperative_groups;
 
 void solve_block_with_cusolver(cusolverDnHandle_t cusolverH, float* A_sub, float* b_sub, int block_size) {
     int* d_info;
@@ -36,8 +32,10 @@ parallelize_sparse_matrix(const torch::Tensor& A, const torch::Tensor& b, const 
     CHECK_INPUT(b);
     uint32_t dim = b.size(0);
     torch::Tensor solve = torch::empty_like(b,b.options());
-    cusolverDnHandle_t cusolverH;
-    cusolverDnCreate(&cusolverH);
+
+    // cusolverDnHandle_t cusolverH;
+    // cusolverDnCreate(&cusolverH);
+
     uint32_t current_idx = 0;
     uint32_t block_num = (dim-1) / block_size + 1;
     for(int i =0;i<block_num;i++) {
@@ -53,7 +51,10 @@ parallelize_sparse_matrix(const torch::Tensor& A, const torch::Tensor& b, const 
             torch::indexing::Slice(current_idx, end_idx)});
         torch::Tensor b_sub = b.index({torch::indexing::Slice(current_idx,end_idx)});
 
+        // method1: use torch
         torch::Tensor solve_sub = torch::linalg::solve(A_sub, b_sub.view({-1, 1}),true);
+
+        // method2: use cusolver
         // solve_block_with_cusolver(
         //     cusolverH,
         //     A_sub.data_ptr<float>(),
@@ -64,7 +65,7 @@ parallelize_sparse_matrix(const torch::Tensor& A, const torch::Tensor& b, const 
         solve.index({torch::indexing::Slice(current_idx, end_idx)}) = solve_sub.flatten();
         current_idx += block_size;
     }
-    cusolverDnDestroy(cusolverH);
+    // cusolverDnDestroy(cusolverH);
     return solve;
 }
 

@@ -2,6 +2,8 @@
 Created by Han Xu
 email:736946693@qq.com
 '''
+import time
+
 import numpy
 import torch
 from typing import Any, Dict, Iterable, Union, Callable, List
@@ -66,7 +68,7 @@ class LevenbergMarquardt(Optimizer):
                 end_idx = current_idx + block_size
             A_sub = A[current_idx:end_idx, current_idx:end_idx]
             b_sub = b[current_idx:end_idx]
-            sub_update = -torch.inverse(A_sub) @ b_sub.view(-1, 1)
+            sub_update = torch.inverse(A_sub) @ b_sub.view(-1, 1)
             # 将解的分块赋值给相应的 update 部分
             solve[current_idx:end_idx] = sub_update.flatten()
             current_idx += block_size
@@ -116,11 +118,10 @@ class LevenbergMarquardt(Optimizer):
                 update = (-torch.inverse(A) @ gradient.view(-1, 1)).flatten()
             else:
                 try:
-                    update = parallelize_sparse_matrix(A, gradient, block_size)
+                    update = -parallelize_sparse_matrix(A, gradient, block_size)
                 except Exception as error:
                     print(f"\033[91m {error} \033[0m")
-                    update = self.solve_sparse_matrix(A, gradient, block_size)
-
+                    update = -self.solve_sparse_matrix(A, gradient, block_size)
             original_params = {p: p.clone() for p in group['params']}
             params_vector = []
             for p in group['params']:
@@ -146,12 +147,12 @@ class LevenbergMarquardt(Optimizer):
             #           ).item()
 
             ## other check
-            if torch.linalg.vector_norm(gradient) < group['tolOpt']:
-                continue
-            if torch.linalg.vector_norm(update) < group['tolX'] * max(1.0, params_length):
-                continue
-            if abs(new_loss - loss) < group['tolFun'] * max(1.0, abs(loss)):
-                continue
+            # if torch.linalg.vector_norm(gradient) < group['tolOpt']:
+            #     continue
+            # if torch.linalg.vector_norm(update) < group['tolX'] * max(1.0, params_length):
+            #     continue
+            # if abs(new_loss - loss) < group['tolFun'] * max(1.0, abs(loss)):
+            #     continue
 
             if varrho > 0:
                 if (torch.linalg.vector_norm(new_gradient, ord=numpy.inf) <= epsilon):
