@@ -74,6 +74,7 @@ __global__ void rasterize_to_pixels_bwd_kernel(
     // have all threads in tile process the same gaussians in batches
     // first collect gaussians between range.x and range.y in batches
     // which gaussians to look through in this tile
+    // range_start和range_end用来对flatten_ids进行索引，range_end-range_start是这个tile对应的gaussian的数量
     int32_t range_start = tile_offsets[tile_id];
     int32_t range_end =
         (camera_id == C - 1) && (tile_id == tile_width * tile_height - 1)
@@ -83,6 +84,7 @@ __global__ void rasterize_to_pixels_bwd_kernel(
     const uint32_t num_batches =
         (range_end - range_start + block_size - 1) / block_size;
 
+    // 获得分配给这个block的共享内存的指针
     extern __shared__ int s[];
     int32_t *id_batch = (int32_t *)s; // [block_size]
     vec3<S> *xy_opacity_batch =
@@ -111,13 +113,13 @@ __global__ void rasterize_to_pixels_bwd_kernel(
     // collect and process batches of gaussians
     // each thread loads one gaussian at a time before rasterizing
     const uint32_t tr = block.thread_rank();
-    cg::thread_block_tile<32> warp = cg::tiled_partition<32>(block);
     // 拿到这个tile里位于最后索引的gaussian的索引id
+    cg::thread_block_tile<32> warp = cg::tiled_partition<32>(block);
     const int32_t warp_bin_final = cg::reduce(warp, bin_final, cg::greater<int>());
+    // 当前线程按照深度从大到小遍历range_end-range_start个gaussians，直到done
     for (uint32_t b = 0; b < num_batches; ++b) {
         // resync all threads before writing next batch of shared mem
         block.sync();
-
         // each thread fetch 1 gaussian from back to front
         // 0 index will be furthest back in batch
         // index of gaussian to load
@@ -148,7 +150,7 @@ __global__ void rasterize_to_pixels_bwd_kernel(
         for (uint32_t t = max(0, batch_end - warp_bin_final); t < batch_size; ++t) {
             bool valid = inside;
             if (batch_end - t > bin_final) {
-                valid = 0;
+                valid = false;
             }
             S alpha;
             S opac;
@@ -238,7 +240,7 @@ __global__ void rasterize_to_pixels_bwd_kernel(
                     buffer[k] += rgbs_batch[t * COLOR_DIM + k] * fac;
                 }
             }
-            // 把这个block内的值累计起来
+            // 把这个block内的值累计起来，因为一个gaussian对多个pixel都有贡献
             warpSum<COLOR_DIM, S>(v_rgb_local, warp);
             warpSum<decltype(warp), S>(v_conic_local, warp);
             warpSum<decltype(warp), S>(v_xy_local, warp);

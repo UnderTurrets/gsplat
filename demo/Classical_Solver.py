@@ -3,7 +3,7 @@ import numpy
 import numpy as np
 import copy
 from tqdm import tqdm
-from .Base import CostFactor, SolverFactor
+from demo.Base import CostFactor, SolverFactor
 import scipy.sparse as sp
 import scipy.sparse.linalg as splinalg
 from typing import Optional
@@ -284,9 +284,8 @@ class Classical_GD_Solver(SolverFactor):
             if np.linalg.norm(update) < self.tolX * max(1, np.linalg.norm(cost_factor.x)):
                 print("update is low so stop")
                 break
-            if abs(cost_factor_hypothesis.error(weights) - cost_factor.error(weights)) < self.tolFun * max(1,
-                                                                                                           abs(cost_factor.error(
-                                                                                                                   weights))):
+            if (abs(cost_factor_hypothesis.error(weights) - cost_factor.error(weights)) <
+                    self.tolFun * max(1, abs(cost_factor.error(weights)))):
                 print("error is low so stop")
                 break
             cost_factor = copy.deepcopy(cost_factor_hypothesis)
@@ -303,7 +302,7 @@ class Classical_GD_Solver(SolverFactor):
         return cost_factor, average_iteration_speed
 
 
-from Environment.CostFactor import CostFactor_Env1, CostFactor_Env2, CostFactor_Env3, CostFactor_Env4
+from CostFactor import CostFactor_Env1, CostFactor_Env2, CostFactor_Env3, CostFactor_Env4
 
 # 主函数，测试NLS和GD求解器
 if __name__ == "__main__":

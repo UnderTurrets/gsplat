@@ -1,6 +1,6 @@
 # 从环境模块中导入成本因子类和求解器类
-from .CostFactor import CostFactor_1DGS
-from .Classical_Solver import Classical_NLS_Solver, Classical_GD_Solver
+from demo.CostFactor import CostFactor_1DGS
+from demo.Classical_Solver import Classical_NLS_Solver, Classical_GD_Solver
 import numpy
 import pandas as pd
 import seaborn as sns
@@ -105,20 +105,20 @@ if __name__ == '__main__':
         # costFunc1DGS_adam_optimize(cost_factor, max_iterations=100, lr=lr, show_process=True)
 
         ## LM
-        # start_time = time.time()
-        # _, _, LM_solveTime= optimizer_nls.solve(cost_factor, show_process=True, show_result=True)
-        # end_time = time.time()
-        # data.append({'Method': 'naive nls', 'Iteration': optimizer_nls.iteration, 'Time': end_time - start_time,
-        #              'Epoch': f'Epoch {e_i}'})
+        start_time = time.time()
+        _, _, LM_solveTime= optimizer_nls.solve(cost_factor, show_process=True, show_result=True)
+        end_time = time.time()
+        data.append({'Method': 'naive nls', 'Iteration': optimizer_nls.iteration, 'Time': end_time - start_time,
+                     'Epoch': f'Epoch {e_i}'})
 
         ## sparse LM
-        start_time = time.time()
-        _, _, SparseLM_solveTime = optimizer_nls_sparse.solve(cost_factor, block_size=50, show_process=True,
-                                                              show_result=True)
-        end_time = time.time()
-        data.append(
-            {'Method': 'naive nls sparse', 'Iteration': optimizer_nls_sparse.iteration, 'Time': end_time - start_time,
-             'Epoch': f'Epoch {e_i}'})
+        # start_time = time.time()
+        # _, _, SparseLM_solveTime = optimizer_nls_sparse.solve(cost_factor, block_size=50, show_process=True,
+        #                                                       show_result=True)
+        # end_time = time.time()
+        # data.append(
+        #     {'Method': 'naive nls sparse', 'Iteration': optimizer_nls_sparse.iteration, 'Time': end_time - start_time,
+        #      'Epoch': f'Epoch {e_i}'})
 
         ## GD
         # start_time = time.time()

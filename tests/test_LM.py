@@ -8,6 +8,7 @@ from tqdm import tqdm
 from gsplat.LMoptimizer import LevenbergMarquardt
 import torch
 import numpy
+
 if __name__ == '__main__':
     def costFunc1DGS_LM_optimize(costF: CostFactor_1DGS, max_iterations: int = 2000, show_process: bool = False, device='cuda'):
         observes = torch.tensor(data=costF.obs, requires_grad=True, dtype=torch.float32 ,device=device)
@@ -40,30 +41,30 @@ if __name__ == '__main__':
                         or opacity[i] <= 0
                         or opacity[i] >= max(observes[:, 1])
                 ): continue
-                J[:, 3 * i] = -(
+                J[:, i] = -(
                         opacity[i] * (observes[:, 0] - means[i]) / variances[i] *
                         torch.exp(-0.5 * (observes[:, 0] - means[i]) ** 2 / variances[i])
                 )
                 if costF.parameter_space == 0:
-                    J[:, 3 * i + 1] = -(
+                    J[:, gaussian_num + i] = -(
                             opacity[i] * ((observes[:, 0] - means[i]) ** 2) / (p2[i] ** 3) *
                             torch.exp(-0.5 * ((observes[:, 0] - means[i]) ** 2) / p2[i] ** 2)
                     )
-                    J[:, 3 * i + 2] = -torch.exp(-0.5 * ((observes[:, 0] - means[i]) ** 2) / p2[i] ** 2)
+                    J[:, 2*gaussian_num + i] = -torch.exp(-0.5 * ((observes[:, 0] - means[i]) ** 2) / p2[i] ** 2)
                 elif costF.parameter_space == 1:
-                    J[:, 3 * i + 1] = -(
+                    J[:, gaussian_num + i] = -(
                             opacity[i] * ((observes[:, 0] - means[i]) ** 2) / (2 * variances[i] ** 2) *
                             torch.exp(-0.5 * (observes[:, 0] - means[i]) ** 2 / variances[i]) * torch.exp(
                         p2[i])
                     )
-                    J[:, 3 * i + 2] = -(
+                    J[:, 2*gaussian_num + i] = -(
                             torch.exp(-0.5 * (observes[:, 0] - means[i]) ** 2 / variances[i]) *
                             torch.exp(-p3[i]) /
                             ((1 + torch.exp(-p3[i])) ** 2)
                     )
             return J
 
-        opt = LevenbergMarquardt(params=[p1, p2, p3], tou=1e-0)
+        opt = LevenbergMarquardt(params=[p1, p2, p3], tou=1e-1, block_size=69, strategy='0')
         loss_history = []
         panr_history = []
         iteration_speed_history = []
@@ -99,7 +100,19 @@ if __name__ == '__main__':
                 plt.xlabel('iteration')
                 plt.pause(0.01)
 
-            def closure() -> float:
+            opt.zero_grad(set_to_none=True)
+            means, variances, opacity = get_parameters()
+            ## compute residual
+            y_data_list = []
+            for i in range(gaussian_num):
+                y_data_list.append(opacity[i] * torch.exp(-0.5 * (observes[:, 0] - means[i]) ** 2 / variances[i]))
+            y_data_stack = torch.stack(y_data_list, dim=0)
+            y_data = torch.sum(y_data_stack, dim=0)
+            residual = observes[:, 1] - y_data
+            _weights = torch.ones(size=(costF.obs_dim,), device=device).repeat(costF.residual_dim)
+            residual = residual * _weights
+
+            def closure():
                 opt.zero_grad(set_to_none=True)
                 means, variances, opacity = get_parameters()
                 # compute residual
@@ -110,12 +123,10 @@ if __name__ == '__main__':
                 y_data = torch.sum(y_data_stack, dim=0)
                 residual = observes[:, 1] - y_data
                 _weights = torch.ones(size=(costF.obs_dim,),device=device).repeat(costF.residual_dim)
-                loss = 0.5 * torch.sum(torch.square(residual * _weights))
-                loss.backward()
-                return loss.item()
-
-            jacobian = get_jacobain()
-            loss = opt.step(closure=closure, Jacobians=[jacobian])
+                residual = residual * _weights
+                return get_jacobain(), residual
+            # loss = opt.step(Jacobians=[get_jacobain()],residual=residual)
+            loss = opt.step(closure=closure)
             opt.zero_grad(set_to_none=True)
             mse = torch.mean((observes[:, 1] - y_data) ** 2)
             psnr = 10 * torch.log10(torch.max(observes[:, 1]).item() ** 2 / mse)
@@ -133,5 +144,5 @@ if __name__ == '__main__':
         return average_iteration_speed
 
 
-    cost_factor = CostFactor_1DGS(gaussian_num=1000, is_great_init=False, parameter_space=0)
-    costFunc1DGS_LM_optimize(costF=cost_factor, max_iterations=100, show_process=False, device='cuda')
+    cost_factor = CostFactor_1DGS(gaussian_num=50, is_great_init=False, parameter_space=0)
+    costFunc1DGS_LM_optimize(costF=cost_factor, max_iterations=100, show_process=True, device='cuda')

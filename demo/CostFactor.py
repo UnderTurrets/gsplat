@@ -2,7 +2,7 @@ import os.path
 import numpy
 import numpy as np
 import random
-from .Base import CostFactor
+from demo.Base import CostFactor
 from typing import List, Tuple
 from numpy import ndarray
 from sklearn.neighbors import NearestNeighbors

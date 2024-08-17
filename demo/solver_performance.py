@@ -4,7 +4,7 @@ email:736946693@qq.com
 '''
 from demo.CostFactor import CostFactor_1DGS
 from demo.Classical_Solver import Classical_NLS_Solver, Classical_GD_Solver
-from classical_solver_example import costFunc1DGS_adam_optimize
+from demo.classical_solver_example import costFunc1DGS_adam_optimize
 import matplotlib.pyplot as plt
 if __name__ == '__main__':
     epoch = 20

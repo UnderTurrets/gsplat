@@ -103,10 +103,11 @@ __global__ void isect_tiles(
             // e.g. tile_n_bits = 22:
             // camera id (10 bits) | tile id (22 bits) | depth (32 bits)
             // 指定索引进行标注，标识信息为camera id + tile id + depth
-            // 这样的话，isect_ids就有n_isects个值，表示有n_isects个重叠的tiles，每个tile记录了自己的全局位置信息和对应的gaussian的深度信息
+            // isect_ids有n_isects个值，表示有n_isects个重叠的tiles，每个元素记录了自己在哪个视角、自己在一张图片中的位置id、对应的gaussian的深度信息
+            // 深度用来排序
             isect_ids[cur_idx] = cid_enc | (tile_id << 32) | depth_id_enc;
             // the flatten index in [C * N] or [nnz]
-            // 标注这个tile对应哪个gaussian
+            // flatten_ids有n_isects个值，表示有n_isects个重叠的tiles，每个元素记录对应的gaussian的全局id
             flatten_ids[cur_idx] = static_cast<int32_t>(idx);
             ++cur_idx;
         }
@@ -270,20 +271,25 @@ __global__ void isect_offset_encode(const uint32_t n_isects,
     if (idx >= n_isects)
         return;
 
+    // 去除深度信息，保留相机id与tile_id
+    // 这时isect_ids已经经过排序，相机id从小到大，tid_curr从小到大
     int64_t isect_id_curr = isect_ids[idx] >> 32;
+    // 拿到相机id
     int64_t cid_curr = isect_id_curr >> tile_n_bits;
+    // 拿到tile在图片中的id
     int64_t tid_curr = isect_id_curr & ((1 << tile_n_bits) - 1);
+    // n_tiles：一张图片有几个tile
+    // 拿到tile的全局索引号
     int64_t id_curr = cid_curr * n_tiles + tid_curr;
 
     // 以下三个if语句，依靠offsets这个变量，建立了n_isects个tile，与tiles的全局索引号的一一对应关系
     // 譬如，有2张图片，每张图4个tile，n_tiles = 8,isect_ids=[0|0, 0|1, 0|1, 1|0, 1|0, 1|0, 1|1, 1|1, 1|1, 1|2],n_isects=10，
-    // isect_ids是经过排序的，相机id与tile_id在前32位，深度值在后32位，所以isect_ids是从小到大
     // 那么，offsets=[0,1,3,3,3,6,9,9]
     // 有了offsets，如果我想知道第7个tile对应哪个gaussian，我只需要这样表示：flatten_ids[offsets[6]]
     if (idx == 0) {
         // write out the offsets until the first valid tile (inclusive)
         for (uint32_t i = 0; i < id_curr + 1; ++i)
-            offsets[i] = static_cast<int32_t>(idx);
+            offsets[i] = 0;
     }
     if (idx == n_isects - 1) {
         // write out the rest of the offsets
