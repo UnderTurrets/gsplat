@@ -2,6 +2,8 @@
 Created by Han Xu
 email:736946693@qq.com
 '''
+import time
+
 import matplotlib.pyplot as plt
 from demo.CostFactor import CostFactor_1DGS
 from tqdm import tqdm
@@ -124,16 +126,19 @@ if __name__ == '__main__':
                 residual = observes[:, 1] - y_data
                 _weights = torch.ones(size=(costF.obs_dim,),device=device).repeat(costF.residual_dim)
                 residual = residual * _weights
-                return get_jacobain(), residual
-            # loss = opt.step(Jacobians=[get_jacobain()],residual=residual)
-            loss = opt.step(closure=closure)
+                return get_jacobain().to_sparse_coo(), residual
+
+            opt_time = time.time()
+            loss = opt.step(Jacobians=[get_jacobain().to_sparse_coo()], residual=residual)
+            # loss = opt.step(closure=closure)
+            opt_time = time.time() - opt_time
             opt.zero_grad(set_to_none=True)
             mse = torch.mean((observes[:, 1] - y_data) ** 2)
             psnr = 10 * torch.log10(torch.max(observes[:, 1]).item() ** 2 / mse)
             loss_history.append(loss)
             panr_history.append(psnr.item())
 
-            desc = f"LM"
+            desc = f"LM, opt_time={opt_time}"
             pbar.set_description(desc)
             if pbar.format_dict["rate"] is not None:
                 iteration_speed_history.append(pbar.format_dict["rate"])
@@ -145,4 +150,4 @@ if __name__ == '__main__':
 
 
     cost_factor = CostFactor_1DGS(gaussian_num=50, is_great_init=False, parameter_space=0)
-    costFunc1DGS_LM_optimize(costF=cost_factor, max_iterations=100, show_process=True, device='cuda')
+    costFunc1DGS_LM_optimize(costF=cost_factor, max_iterations=10000, show_process=False, device='cuda')

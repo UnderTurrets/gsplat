@@ -580,13 +580,19 @@ def rasterize_to_indices_in_range(
     return out_gauss_ids, out_pixel_ids, out_camera_ids
 
 def parallelize_sparse_matrix(A: Tensor, b: Tensor, block_size: int) -> Tensor:
+    assert (A.layout == torch.sparse_coo or
+            A.layout == torch.strided), A.layout
     assert A.dim() == 2, "A must be a 2-dimensional matrix"
-    assert b.dim() == 1, "b must be a vector"
-    assert A.shape[0] == A.shape[1], 'A must be a square matrix'
-    assert A.shape[0] == b.shape[0], "A.shape[0] must be equal to b.shape[0]"
+    assert b.layout == torch.strided, b.layout
+    assert (b.dim() == 1) or (b.dim() == 2 and b.size()[-1] == 1), "b must be a vector"
+    if b.dim() == 2 and b.size()[-1] == 1:
+        b = b.reshape(-1)
+    assert A.size()[0] == A.size()[1], 'A must be a square matrix'
+    assert A.size()[0] == b.size()[0], "A.size()[0] must be equal to b.size()[0]"
+
     solve = _make_lazy_cuda_func("parallelize_sparse_matrix")(
-        A.contiguous(),
-        b.contiguous(),
+        A,
+        b,
         block_size
     )
     return solve

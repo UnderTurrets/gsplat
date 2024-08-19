@@ -15,7 +15,6 @@ import tqdm
 import tyro
 import viser
 from gsplat.distributed import cli
-from gsplat.rendering import rasterization
 from gsplat.strategy import DefaultStrategy, MCMCStrategy
 from torch import Tensor
 from torch.nn.parallel import DistributedDataParallel as DDP
