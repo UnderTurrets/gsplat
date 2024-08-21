@@ -39,9 +39,53 @@
 ## fully_fused_projection
 根据packed参数，调用_FullyFusedProjectionPacked或_FullyFusedProjection
 
+# residual对参数的jacobian推导
 
+## 待优化参数
 
+`means`: [N, 3]
 
+`scales`: [N, 3]
+
+`quats`: [N, 4]
+
+`opacities`: [N, 1]
+
+`sh0`: [N, 1, 3], `shN`: [N, 15, 3] -> `color`:[C, N, 3]
+
+## fully_fused_projection
+
+means -> mean_c
+
+mean_c -> J
+
+scales, quats -> covar -> covar_c
+
+covar_c, J -> covar2d
+
+- output1: mean_c -> means2d
+
+- output2: mean_c -> depth
+
+- output3: covar2d -> conics, radius
+
+- output4: eps2d, covar2d -> compensation
+
+## rasterize_to_pixels
+
+conic, means2d, opac -> alpha
+
+alpha -> T
+
+alpha, T -> vis
+
+color, vis -> pix_out
+
+- output1: background, pixout -> render_colors
+
+- output2: T -> render_alphas
+
+- output3: last_ids
 
 
 

@@ -5,8 +5,8 @@
 #include <cuda_fp16.h>
 #include <cuda_runtime.h>
 
-#include <glm/glm.hpp>
-#include <glm/gtc/type_ptr.hpp>
+#include "third_party/glm/glm/glm.hpp"
+#include "third_party/glm/glm/gtc/type_ptr.hpp"
 #include <ATen/Dispatch.h>
 
 template <typename T> using vec2 = glm::vec<2, T>;

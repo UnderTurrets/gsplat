@@ -2,27 +2,27 @@
 // Created by cvgluser on 24-8-9.
 //
 #include "bindings.h"
-#include <cusolverDn.h>
+//#include <cusolverDn.h>
 #include <cuda_runtime.h>
 
-void solve_block_with_cusolver(cusolverDnHandle_t cusolverH, float* A_sub, float* b_sub, int block_size) {
-    int* d_info;
-    int* d_pivots;
-    cudaMalloc(&d_info, sizeof(int));
-    cudaMalloc(&d_pivots, block_size * sizeof(int));
-
-    float* d_work;
-    int lwork;
-    cusolverDnSgetrf_bufferSize(cusolverH, block_size, block_size, A_sub, block_size, &lwork);
-    cudaMalloc(&d_work, lwork * sizeof(float));
-
-    cusolverDnSgetrf(cusolverH, block_size, block_size, A_sub, block_size, d_work, d_pivots, d_info);
-    cusolverDnSgetrs(cusolverH, CUBLAS_OP_N, block_size, 1, A_sub, block_size, d_pivots, b_sub, block_size, d_info);
-
-    cudaFree(d_info);
-    cudaFree(d_pivots);
-    cudaFree(d_work);
-}
+//void solve_block_with_cusolver(cusolverDnHandle_t cusolverH, float* A_sub, float* b_sub, int block_size) {
+//    int* d_info;
+//    int* d_pivots;
+//    cudaMalloc(&d_info, sizeof(int));
+//    cudaMalloc(&d_pivots, block_size * sizeof(int));
+//
+//    float* d_work;
+//    int lwork;
+//    cusolverDnSgetrf_bufferSize(cusolverH, block_size, block_size, A_sub, block_size, &lwork);
+//    cudaMalloc(&d_work, lwork * sizeof(float));
+//
+//    cusolverDnSgetrf(cusolverH, block_size, block_size, A_sub, block_size, d_work, d_pivots, d_info);
+//    cusolverDnSgetrs(cusolverH, CUBLAS_OP_N, block_size, 1, A_sub, block_size, d_pivots, b_sub, block_size, d_info);
+//
+//    cudaFree(d_info);
+//    cudaFree(d_pivots);
+//    cudaFree(d_work);
+//}
 
 torch::Tensor sparse_coo_slice_to_dense(const torch::Tensor& coo_tensor,
                                         const std::pair<int64_t, int64_t> row_range,
