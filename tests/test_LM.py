@@ -102,17 +102,17 @@ if __name__ == '__main__':
                 plt.xlabel('iteration')
                 plt.pause(0.01)
 
-            opt.zero_grad(set_to_none=True)
-            means, variances, opacity = get_parameters()
-            ## compute residual
-            y_data_list = []
-            for i in range(gaussian_num):
-                y_data_list.append(opacity[i] * torch.exp(-0.5 * (observes[:, 0] - means[i]) ** 2 / variances[i]))
-            y_data_stack = torch.stack(y_data_list, dim=0)
-            y_data = torch.sum(y_data_stack, dim=0)
-            residual = observes[:, 1] - y_data
-            _weights = torch.ones(size=(costF.obs_dim,), device=device).repeat(costF.residual_dim)
-            residual = residual * _weights
+            # opt.zero_grad(set_to_none=True)
+            # means, variances, opacity = get_parameters()
+            # ## compute residual
+            # y_data_list = []
+            # for i in range(gaussian_num):
+            #     y_data_list.append(opacity[i] * torch.exp(-0.5 * (observes[:, 0] - means[i]) ** 2 / variances[i]))
+            # y_data_stack = torch.stack(y_data_list, dim=0)
+            # y_data = torch.sum(y_data_stack, dim=0)
+            # residual = observes[:, 1] - y_data
+            # _weights = torch.ones(size=(costF.obs_dim,), device=device).repeat(costF.residual_dim)
+            # residual = residual * _weights
 
             def closure():
                 opt.zero_grad(set_to_none=True)
@@ -129,8 +129,8 @@ if __name__ == '__main__':
                 return get_jacobain().to_sparse_coo(), residual
 
             opt_time = time.time()
-            loss = opt.step(Jacobians=[get_jacobain().to_sparse_coo()], residual=residual)
-            # loss = opt.step(closure=closure)
+            # loss = opt.step(Jacobians=[get_jacobain().to_sparse_coo()], residual=residual)
+            loss = opt.step(closure=closure)
             opt_time = time.time() - opt_time
             opt.zero_grad(set_to_none=True)
             mse = torch.mean((observes[:, 1] - y_data) ** 2)

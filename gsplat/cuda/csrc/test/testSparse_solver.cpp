@@ -2,7 +2,7 @@
 #include <chrono>
 
 int main() {
-    int dim = 5000;
+    int dim = 2000;
 
     // 创建一个随机的对称正定矩阵 A (dim x dim)
     torch::Tensor A = torch::randn({dim, dim}, torch::kCUDA);
@@ -11,7 +11,7 @@ int main() {
     torch::Tensor b = torch::randn(dim, torch::kCUDA);
 
     auto start2 = std::chrono::high_resolution_clock::now();
-    for (int i = 0; i < 100; i++) {
+    for (int i = 0; i < 500; i++) {
         torch::Tensor factor_solve = torch::linalg::solve(A, b,true);
         // torch::Tensor solve = parallelize_sparse_matrix(A, b, block_size);
     }

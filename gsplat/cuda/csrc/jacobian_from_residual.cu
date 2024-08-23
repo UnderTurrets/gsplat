@@ -1,9 +1,15 @@
+//
+// Created by cvgluser on 24-8-23.
+//
 #include "bindings.h"
 #include "helpers.cuh"
+#include "utils.cuh"
 #include "types.cuh"
 
 #include <cooperative_groups.h>
+#include <cooperative_groups/reduce.h>
 #include <cub/cub.cuh>
+#include <cuda.h>
 #include <cuda_runtime.h>
 
 namespace cg = cooperative_groups;
@@ -13,7 +19,7 @@ namespace cg = cooperative_groups;
  ****************************************************************************/
 
 template <uint32_t COLOR_DIM, typename S>
-__global__ void rasterize_to_pixels_bwd_kernel(
+__global__ void jacobian_bwd_kernel(
     const uint32_t C, const uint32_t N, const uint32_t n_isects, const bool packed,
     // fwd inputs
     const vec2<S> *__restrict__ means2d, // [C, N, 2] or [nnz, 2]
@@ -347,13 +353,13 @@ call_kernel_with_dim(
                                      sizeof(vec3<float>) + sizeof(float) * COLOR_DIM);
         at::cuda::CUDAStream stream = at::cuda::getCurrentCUDAStream();
 
-        if (cudaFuncSetAttribute(rasterize_to_pixels_bwd_kernel<CDIM, float>,
+        if (cudaFuncSetAttribute(jacobian_bwd_kernel<CDIM, float>,
                                  cudaFuncAttributeMaxDynamicSharedMemorySize,
                                  shared_mem) != cudaSuccess) {
             AT_ERROR("Failed to set maximum shared memory size (requested ", shared_mem,
                      " bytes), try lowering tile_size.");
         }
-        rasterize_to_pixels_bwd_kernel<CDIM, float>
+        jacobian_bwd_kernel<CDIM, float>
             <<<blocks, threads, shared_mem, stream>>>(
                 C, N, n_isects, packed,
                 reinterpret_cast<vec2<float> *>(means2d.data_ptr<float>()),
@@ -378,7 +384,7 @@ call_kernel_with_dim(
 }
 
 std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>
-rasterize_to_pixels_bwd_tensor(
+jacobian_bwd_tensor(
     // Gaussian parameters
     const torch::Tensor &means2d,                   // [C, N, 2] or [nnz, 2]
     const torch::Tensor &conics,                    // [C, N, 3] or [nnz, 3]

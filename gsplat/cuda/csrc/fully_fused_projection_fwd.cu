@@ -91,7 +91,7 @@ fully_fused_projection_fwd_kernel(const uint32_t C, const uint32_t N,
                   image_height, covar2d, mean2d);
 
     // 在covar2d的对角线上添加eps2d，返回添加后的行列式
-    // compensation定义为，添加前的det除以添加后的det，若出现负数，则返回0
+    // compensation定义为：添加前的det除以添加后的det，若出现负数，则返回0
     T compensation;
     T det = add_blur(eps2d, covar2d, compensation);
     // 检验正定性，保留半正定的

@@ -19,7 +19,6 @@ set(CMAKE_PREFIX_PATH "/home/cvgluser/Downloads/libtorch-cxx11-abi-shared-with-d
 
 # 查找 Torch 库
 find_package(Torch REQUIRED)
-find_package(glm REQUIRED)
 find_package(Python3 COMPONENTS Development REQUIRED)
 
 # 搜索源文件
@@ -34,9 +33,8 @@ add_library(${PROJECT_NAME} ${source})
 set_target_properties(${PROJECT_NAME} PROPERTIES CUDA_ARCHITECTURES "70;75;86")
 
 # 链接必要的库
-target_link_libraries(${PROJECT_NAME} PRIVATE
+target_link_libraries(${PROJECT_NAME}
     ${TORCH_LIBRARIES}
-    glm
     cusolver
     cudart
     cublas
