@@ -22,35 +22,54 @@ template <uint32_t COLOR_DIM, typename S>
 __global__ void jacobian_bwd_kernel(
     const uint32_t C, const uint32_t N, const uint32_t n_isects, const bool packed,
     // fwd inputs
-    const vec2<S> *__restrict__ means2d, // [C, N, 2] or [nnz, 2]
-    const vec3<S> *__restrict__ conics,  // [C, N, 3] or [nnz, 3]
+    const S *__restrict__ means,    // [N, 3]
+    const S *__restrict__ covars,   // [N, 6] optional
+    const S *__restrict__ quats,    // [N, 4] optional
+    const S *__restrict__ scales,   // [N, 3] optional
     const S *__restrict__ colors,        // [C, N, COLOR_DIM] or [nnz, COLOR_DIM]
     const S *__restrict__ opacities,     // [C, N] or [nnz]
+    const S *__restrict__ viewmats, // [C, 4, 4]
+    const S *__restrict__ Ks,       // [C, 3, 3]
+    // 中间变量
+    const vec2<S> *__restrict__ means2d, // [C, N, 2] or [nnz, 2]
+    const S *__restrict__ depths,        // [C, N]
+    const vec3<S> *__restrict__ conics,  // [C, N, 3] or [nnz, 3]
+    const S *__restrict__ compensations, // [C, N] optional
     const S *__restrict__ backgrounds,   // [C, COLOR_DIM] or [nnz, COLOR_DIM]
     const bool *__restrict__ masks,      // [C, tile_height, tile_width]
-    const uint32_t image_width, const uint32_t image_height, const uint32_t tile_size,
+    // 辅助信息
+    const uint32_t image_width, const uint32_t image_height,const S eps2d,
+    const uint32_t tile_size,
     const uint32_t tile_width, const uint32_t tile_height,
     const int32_t *__restrict__ tile_offsets, // [C, tile_height, tile_width]
     const int32_t *__restrict__ flatten_ids,  // [n_isects]
     // fwd outputs
     const S *__restrict__ render_alphas,  // [C, image_height, image_width, 1]
     const int32_t *__restrict__ last_ids, // [C, image_height, image_width]
-    // grad inputs from loss which is automatically computed by torch
+    // grad input which is automatically computed by torch
     const S *__restrict__ v_render_colors, // [C, image_height, image_width, COLOR_DIM]
     const S *__restrict__ v_render_alphas, // [C, image_height, image_width, 1]
-    // grad outputs to fully_fused_projection
-    vec2<S> *__restrict__ v_means2d_abs, // [C, N, 2] or [nnz, 2]
-    vec2<S> *__restrict__ v_means2d,     // [C, N, 2] or [nnz, 2]
-    vec3<S> *__restrict__ v_conics,      // [C, N, 3] or [nnz, 3]
+    // grad outputs
+    S *__restrict__ v_means,   // [N, 3]
+    S *__restrict__ v_covars,  // [N, 6] optional
+    S *__restrict__ v_quats,   // [N, 4] optional
+    S *__restrict__ v_scales,  // [N, 3] optional
+    S *__restrict__ v_viewmats, // [C, 4, 4] optional
     S *__restrict__ v_colors,            // [C, N, COLOR_DIM] or [nnz, COLOR_DIM]
     S *__restrict__ v_opacities          // [C, N] or [nnz]
 ) {
     auto block = cg::this_thread_block();
+    // block.group_index().y表示当前的tile在这张图片上的第几行tile，block.group_index().z表示当前的tile在这张图片上的第几列tile
+    // 知道现在处理的是哪一张图片
     uint32_t camera_id = block.group_index().x;
+    // 知道现在处理的是这张图片中的哪个tile
     uint32_t tile_id = block.group_index().y * tile_width + block.group_index().z;
+    // block.thread_index().x和block.thread_index().y表示当前线程处理的pixel在tile中的坐标
+    // i、j表示当前线程处理的pixel在图片中的坐标
     uint32_t i = block.group_index().y * tile_size + block.thread_index().y;
     uint32_t j = block.group_index().z * tile_size + block.thread_index().x;
 
+    // 偏移指针到当前图片
     tile_offsets += camera_id * tile_height * tile_width;
     render_alphas += camera_id * image_height * image_width;
     last_ids += camera_id * image_height * image_width;
@@ -90,15 +109,6 @@ __global__ void jacobian_bwd_kernel(
     const uint32_t num_batches =
         (range_end - range_start + block_size - 1) / block_size;
 
-    // 获得分配给这个block的共享内存的指针
-    extern __shared__ int s[];
-    int32_t *id_batch = (int32_t *)s; // [block_size]
-    vec3<S> *xy_opacity_batch =
-        reinterpret_cast<vec3<float> *>(&id_batch[block_size]); // [block_size]
-    vec3<S> *conic_batch =
-        reinterpret_cast<vec3<float> *>(&xy_opacity_batch[block_size]); // [block_size]
-    S *rgbs_batch = (S *)&conic_batch[block_size]; // [block_size * COLOR_DIM]
-
     // this is the T AFTER the last gaussian in this pixel
     S T_final = 1.0f - render_alphas[pix_id];
     S T = T_final;
@@ -116,6 +126,15 @@ __global__ void jacobian_bwd_kernel(
     }
     const S v_render_a = v_render_alphas[pix_id];
 
+    // 获得分配给这个block的共享内存的指针
+    extern __shared__ int s[];
+    int32_t *id_batch = (int32_t *)s; // [block_size]
+    vec3<S> *xy_opacity_batch =
+        reinterpret_cast<vec3<float> *>(&id_batch[block_size]); // [block_size]
+    vec3<S> *conic_batch =
+        reinterpret_cast<vec3<float> *>(&xy_opacity_batch[block_size]); // [block_size]
+    S *rgbs_batch = (S *)&conic_batch[block_size]; // [block_size * COLOR_DIM]
+
     // collect and process batches of gaussians
     // each thread loads one gaussian at a time before rasterizing
     const uint32_t tr = block.thread_rank();
@@ -123,7 +142,7 @@ __global__ void jacobian_bwd_kernel(
     cg::thread_block_tile<32> warp = cg::tiled_partition<32>(block);
     const int32_t warp_bin_final = cg::reduce(warp, bin_final, cg::greater<int>());
     // 当前线程按照深度从大到小遍历range_end-range_start个gaussians，直到done
-    for (uint32_t b = 0; b < num_batches; ++b) {
+    for (uint32_t batch_idx = 0; batch_idx < num_batches; ++batch_idx) {
         // resync all threads before writing next batch of shared mem
         block.sync();
         // each thread fetch 1 gaussian from back to front
@@ -133,11 +152,11 @@ __global__ void jacobian_bwd_kernel(
         // These values can be negative so must be int32 instead of uint32
         // batch_end指向这个batch的最后一个gaussian
         // 这里在准备gaussians参数的时候已经倒序，因为idx = batch_end - tr
-        const int32_t batch_end = range_end - 1 - block_size * b;
+        const int32_t batch_end = range_end - 1 - block_size * batch_idx;
         const int32_t batch_size = min(block_size, batch_end + 1 - range_start);
         const int32_t idx = batch_end - tr;
         if (idx >= range_start) {
-            int32_t g = flatten_ids[idx]; // flatten index in [C * N] or [nnz]
+            const int32_t g = flatten_ids[idx]; // flatten index in [C * N] or [nnz]
             id_batch[tr] = g;
             const vec2<S> xy = means2d[g];
             const S opac = opacities[g];
@@ -150,6 +169,7 @@ __global__ void jacobian_bwd_kernel(
         }
         // wait for other threads to collect the gaussians in batch
         block.sync();
+
         // process gaussians in the current batch for this pixel
         // 0 index is the furthest back gaussian in the batch
         // 在b=0时，t=batch_end - warp_bin_final
@@ -158,12 +178,7 @@ __global__ void jacobian_bwd_kernel(
             if (batch_end - t > bin_final) {
                 valid = false;
             }
-            S alpha;
-            S opac;
-            vec2<S> delta;
-            vec3<S> conic;
-            S vis;
-
+            S alpha; S opac; vec2<S> delta; vec3<S> conic; S vis;
             if (valid) {
                 conic = conic_batch[t];
                 vec3<S> xy_opac = xy_opacity_batch[t];
@@ -184,10 +199,10 @@ __global__ void jacobian_bwd_kernel(
                 continue;
             }
             S v_rgb_local[COLOR_DIM] = {0.f};
+            S v_opacity_local = 0.f;
             vec3<S> v_conic_local = {0.f, 0.f, 0.f};
             vec2<S> v_xy_local = {0.f, 0.f};
             vec2<S> v_xy_abs_local = {0.f, 0.f};
-            S v_opacity_local = 0.f;
             // initialize everything to 0, only set if the lane is valid
             if (valid) {
                 // compute the current T for this gaussian
@@ -208,7 +223,6 @@ __global__ void jacobian_bwd_kernel(
                                v_render_c[k];
                 }
 
-                // 这部分文档中未给出式子
                 v_alpha += T_final * ra * v_render_a;
 
                 // 若有background，根据loss的公式推算出background相关梯度
@@ -232,9 +246,7 @@ __global__ void jacobian_bwd_kernel(
                     // 偏sigma/偏delta * 偏Li/偏sigma
                     v_xy_local = {v_sigma * (conic.x * delta.x + conic.y * delta.y),
                                   v_sigma * (conic.y * delta.x + conic.z * delta.y)};
-                    if (v_means2d_abs != nullptr) {
-                        v_xy_abs_local = {abs(v_xy_local.x), abs(v_xy_local.y)};
-                    }
+
                     // 式子（19）偏alpha/偏opacity * 偏Li/偏alpha
                     v_opacity_local = vis * v_alpha;
                 }
@@ -244,39 +256,110 @@ __global__ void jacobian_bwd_kernel(
                 for (uint32_t k = 0; k < COLOR_DIM; ++k) {
                     buffer[k] += rgbs_batch[t * COLOR_DIM + k] * fac;
                 }
-            }
-            // 把这个block内的值累计起来，因为一个gaussian对多个pixel都有贡献
-            warpSum<COLOR_DIM, S>(v_rgb_local, warp);
-            warpSum<decltype(warp), S>(v_conic_local, warp);
-            warpSum<decltype(warp), S>(v_xy_local, warp);
-            if (v_means2d_abs != nullptr) {
-                warpSum<decltype(warp), S>(v_xy_abs_local, warp);
-            }
-            warpSum<decltype(warp), S>(v_opacity_local, warp);
-            if (warp.thread_rank() == 0) {
-                int32_t g = id_batch[t]; // flatten index in [C * N] or [nnz]
-                // 写入v_colors,v_opacities,v_conics,v_means2d,v_means2d_abs的相应位置
-                S *v_rgb_ptr = (S *)(v_colors) + COLOR_DIM * g;
-                gpuAtomicAdd(v_opacities + g, v_opacity_local);
-                PRAGMA_UNROLL
-                for (uint32_t k = 0; k < COLOR_DIM; ++k) {
-                    gpuAtomicAdd(v_rgb_ptr + k, v_rgb_local[k]);
+
+                // 写入v_opacities, v_color
+
+
+                // 计算投影的反向传播
+                const int32_t global_idx = id_batch[t]; // flatten index in [C * N] or [nnz]
+                const uint32_t gaussian_id = global_idx % N;
+
+                // v_depths += global_idx;
+                means += gaussian_id * 3;
+                viewmats += camera_id * 16;
+                Ks += camera_id * 9;
+
+                // vjp: compute the inverse of the 2d covariance
+                mat2<S> covar2d_inv = mat2<S>(conic.x, conic.y, conic.y, conic.z);
+                mat2<S> v_covar2d_inv =
+                    mat2<S>(v_conic_local[0], v_conic_local[1], v_conic_local[1], v_conic_local[2]);
+                // 式子（21） 拿到 偏Li/偏SIGMA
+                mat2<S> v_covar2d(0.f);
+                inverse_vjp(covar2d_inv, v_covar2d_inv, v_covar2d);
+
+                // if (v_compensations != nullptr) {
+                //     // vjp: compensation term
+                //     const S compensation = compensations[global_idx];
+                //     const S v_compensation = v_compensations[global_idx];
+                //     add_blur_vjp(eps2d, covar2d_inv, compensation, v_compensation, v_covar2d);
+                // }
+
+                // transform Gaussian to camera space
+                mat3<S> R = mat3<S>(viewmats[0], viewmats[4], viewmats[8], // 1st column
+                                    viewmats[1], viewmats[5], viewmats[9], // 2nd column
+                                    viewmats[2], viewmats[6], viewmats[10] // 3rd column
+                );
+                vec3<S> translate = vec3<S>(viewmats[3], viewmats[7], viewmats[11]);
+
+                mat3<S> covar; vec4<S> quat; vec3<S> scale;
+                if (covars != nullptr) {
+                    covars += gaussian_id * 6;
+                    covar = mat3<S>(covars[0], covars[1], covars[2], // 1st column
+                                    covars[1], covars[3], covars[4], // 2nd column
+                                    covars[2], covars[4], covars[5]  // 3rd column
+                    );
+                } else {
+                    // compute from quaternions and scales
+                    quat = glm::make_vec4(quats + gaussian_id * 4);
+                    scale = glm::make_vec3(scales + gaussian_id * 3);
+                    quat_scale_to_covar_preci<S>(quat, scale, &covar, nullptr);
+                }
+                vec3<S> mean_c;
+                pos_world_to_cam(R, translate, glm::make_vec3(means), mean_c);
+                mat3<S> covar_c;
+                // 对协方差矩阵做线性变换
+                covar_world_to_cam(R, covar, covar_c);
+
+                // vjp: perspective projection
+                S fx = Ks[0], cx = Ks[2], fy = Ks[4], cy = Ks[5];
+                mat3<S> v_covar_c(0.f); vec3<S> v_mean_c(0.f);
+                // 拿到 偏Li/偏SIGMA' 和 偏Li/偏t
+                persp_proj_vjp<S>(mean_c, covar_c, fx, fy, cx, cy, image_width, image_height,
+                               v_covar2d, v_xy_local, v_mean_c, v_covar_c);
+
+                // add contribution from v_depths
+                // v_mean_c.z += v_depths[0];
+
+                // vjp: transform Gaussian covariance to camera space
+                vec3<S> v_mean(0.f); mat3<S> v_covar(0.f);
+                mat3<S> v_R(0.f); vec3<S> v_t(0.f);
+                pos_world_to_cam_vjp(R, t, glm::make_vec3(means), v_mean_c, v_R, v_t, v_mean);
+                covar_world_to_cam_vjp(R, covar, v_covar_c, v_R, v_covar);
+
+                // 写入v_means
+                if (means != nullptr) {
+                    PRAGMA_UNROLL
+                    for (uint32_t k = 0; k < 3; k++) {
+
+                    }
                 }
 
-                S *v_conic_ptr = (S *)(v_conics) + 3 * g;
-                gpuAtomicAdd(v_conic_ptr, v_conic_local.x);
-                gpuAtomicAdd(v_conic_ptr + 1, v_conic_local.y);
-                gpuAtomicAdd(v_conic_ptr + 2, v_conic_local.z);
+                // 写入(v_scales, v_quats)或者(v_covars)
+                if (covars != nullptr) {
+                    // Output gradients w.r.t. the covariance matrix
 
-                S *v_xy_ptr = (S *)(v_means2d) + 2 * g;
-                gpuAtomicAdd(v_xy_ptr, v_xy_local.x);
-                gpuAtomicAdd(v_xy_ptr + 1, v_xy_local.y);
+                } else {
+                    // Directly output gradients w.r.t. the quaternion and scale
+                    mat3<S> rotmat = quat_to_rotmat<S>(quat);
+                    vec4<S> v_quat(0.f);
+                    vec3<S> v_scale(0.f);
+                    quat_scale_to_covar_vjp<S>(quat, scale, rotmat, v_covar, v_quat, v_scale);
 
-                if (v_means2d_abs != nullptr) {
-                    S *v_xy_abs_ptr = (S *)(v_means2d_abs) + 2 * g;
-                    gpuAtomicAdd(v_xy_abs_ptr, v_xy_abs_local.x);
-                    gpuAtomicAdd(v_xy_abs_ptr + 1, v_xy_abs_local.y);
                 }
+
+                // 写入v_viewmats
+                // if (viewmats != nullptr) {
+                //     PRAGMA_UNROLL
+                //     for (uint32_t p = 0; p < 3; p++) { // rows
+                //         PRAGMA_UNROLL
+                //         for (uint32_t q = 0; q < 3; q++) { // cols
+                //
+                //         }
+                //
+                //     }
+                // }
+
+
             }
         }
     }

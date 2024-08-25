@@ -87,13 +87,6 @@ __global__ void rasterize_to_pixels_fwd_kernel(
     const uint32_t block_size = block.size();
     uint32_t num_batches = (range_end - range_start + block_size - 1) / block_size;
 
-    extern __shared__ int s[];
-    int32_t *id_batch = (int32_t *)s; // [block_size]
-    vec3<S> *xy_opacity_batch =
-        reinterpret_cast<vec3<float> *>(&id_batch[block_size]); // [block_size]
-    vec3<S> *conic_batch =
-        reinterpret_cast<vec3<float> *>(&xy_opacity_batch[block_size]); // [block_size]
-
     // current visibility left to render
     // transmittance is gonna be used in the backward pass which requires a high
     // numerical precision so we use double for it. However double make bwd 1.5x slower
@@ -101,6 +94,13 @@ __global__ void rasterize_to_pixels_fwd_kernel(
     S T = 1.0f;
     // index of most recent gaussian to write to this thread's pixel
     uint32_t cur_idx = 0;
+
+    extern __shared__ int s[];
+    int32_t *id_batch = (int32_t *)s; // [block_size]
+    vec3<S> *xy_opacity_batch =
+        reinterpret_cast<vec3<float> *>(&id_batch[block_size]); // [block_size]
+    vec3<S> *conic_batch =
+        reinterpret_cast<vec3<float> *>(&xy_opacity_batch[block_size]); // [block_size]
 
     // collect and process batches of gaussians
     // each thread loads one gaussian at a time before rasterizing its

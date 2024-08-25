@@ -250,8 +250,8 @@ __global__ void rasterize_to_pixels_bwd_kernel(
             if (warp.thread_rank() == 0) {
                 int32_t g = id_batch[t]; // flatten index in [C * N] or [nnz]
                 // 写入v_colors,v_opacities,v_conics,v_means2d,v_means2d_abs的相应位置
-                S *v_rgb_ptr = (S *)(v_colors) + COLOR_DIM * g;
                 gpuAtomicAdd(v_opacities + g, v_opacity_local);
+                S *v_rgb_ptr = (S *)(v_colors) + COLOR_DIM * g;
                 PRAGMA_UNROLL
                 for (uint32_t k = 0; k < COLOR_DIM; ++k) {
                     gpuAtomicAdd(v_rgb_ptr + k, v_rgb_local[k]);
