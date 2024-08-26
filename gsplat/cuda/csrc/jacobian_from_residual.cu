@@ -3,6 +3,7 @@
 //
 #include "bindings.h"
 #include "helpers.cuh"
+#include "spherical_harmonics.cuh"
 #include "utils.cuh"
 #include "types.cuh"
 
@@ -26,21 +27,22 @@ __global__ void jacobian_bwd_kernel(
     const S *__restrict__ covars,   // [N, 6] optional
     const S *__restrict__ quats,    // [N, 4] optional
     const S *__restrict__ scales,   // [N, 3] optional
-    const S *__restrict__ colors,        // [C, N, COLOR_DIM] or [nnz, COLOR_DIM]
+    const S *__restrict__ coeffs,     // [N, K, 3]
     const S *__restrict__ opacities,     // [C, N] or [nnz]
     const S *__restrict__ viewmats, // [C, 4, 4]
     const S *__restrict__ Ks,       // [C, 3, 3]
     // 中间变量
+    const S *__restrict__ colors,        // [C, N, COLOR_DIM] or [nnz, COLOR_DIM]
     const vec2<S> *__restrict__ means2d, // [C, N, 2] or [nnz, 2]
-    const S *__restrict__ depths,        // [C, N]
+    // const S *__restrict__ depths,        // [C, N]
     const vec3<S> *__restrict__ conics,  // [C, N, 3] or [nnz, 3]
-    const S *__restrict__ compensations, // [C, N] optional
+    // const S *__restrict__ compensations, const S eps2d, // [C, N] optional
     const S *__restrict__ backgrounds,   // [C, COLOR_DIM] or [nnz, COLOR_DIM]
     const bool *__restrict__ masks,      // [C, tile_height, tile_width]
     // 辅助信息
-    const uint32_t image_width, const uint32_t image_height,const S eps2d,
-    const uint32_t tile_size,
-    const uint32_t tile_width, const uint32_t tile_height,
+    const uint32_t K, const uint32_t degrees_to_use, const vec3<S> *__restrict__ dirs, // [N, 3]
+    const uint32_t image_width, const uint32_t image_height,
+    const uint32_t tile_size, const uint32_t tile_width, const uint32_t tile_height,
     const int32_t *__restrict__ tile_offsets, // [C, tile_height, tile_width]
     const int32_t *__restrict__ flatten_ids,  // [n_isects]
     // fwd outputs
@@ -49,14 +51,20 @@ __global__ void jacobian_bwd_kernel(
     // grad input which is automatically computed by torch
     const S *__restrict__ v_render_colors, // [C, image_height, image_width, COLOR_DIM]
     const S *__restrict__ v_render_alphas, // [C, image_height, image_width, 1]
+    // output
+    int32_t *__restrict__ nnz_per_pixel, // [C, image_width * image_height]
     // grad outputs
-    S *__restrict__ v_means,   // [N, 3]
-    S *__restrict__ v_covars,  // [N, 6] optional
-    S *__restrict__ v_quats,   // [N, 4] optional
-    S *__restrict__ v_scales,  // [N, 3] optional
-    S *__restrict__ v_viewmats, // [C, 4, 4] optional
-    S *__restrict__ v_colors,            // [C, N, COLOR_DIM] or [nnz, COLOR_DIM]
-    S *__restrict__ v_opacities          // [C, N] or [nnz]
+    S * __restrict__ jacobian_row_indices, // [C, nnz_Jacobian]
+    S *__restrict__ jacobian_col_indices, // [C, nnz_Jacobian]
+    S *__restrict__ jacobian_values // [C, nnz_Jacobian]
+
+    // S *__restrict__ v_means,   // [N, 3]
+    // S *__restrict__ v_covars,  // [N, 6] optional
+    // S *__restrict__ v_quats,   // [N, 4] optional
+    // S *__restrict__ v_scales,  // [N, 3] optional
+    // S *__restrict__ v_viewmats, // [C, 4, 4] optional
+    // S *__restrict__ v_colors,            // [C, N, COLOR_DIM] or [nnz, COLOR_DIM]
+    // S *__restrict__ v_opacities          // [C, N] or [nnz]
 ) {
     auto block = cg::this_thread_block();
     // block.group_index().y表示当前的tile在这张图片上的第几行tile，block.group_index().z表示当前的tile在这张图片上的第几列tile
@@ -75,6 +83,7 @@ __global__ void jacobian_bwd_kernel(
     last_ids += camera_id * image_height * image_width;
     v_render_colors += camera_id * image_height * image_width * COLOR_DIM;
     v_render_alphas += camera_id * image_height * image_width;
+
     if (backgrounds != nullptr) {
         backgrounds += camera_id * COLOR_DIM;
     }
@@ -257,12 +266,17 @@ __global__ void jacobian_bwd_kernel(
                     buffer[k] += rgbs_batch[t * COLOR_DIM + k] * fac;
                 }
 
-                // 写入v_opacities, v_color
-
-
                 // 计算投影的反向传播
                 const int32_t global_idx = id_batch[t]; // flatten index in [C * N] or [nnz]
                 const uint32_t gaussian_id = global_idx % N;
+
+                S v_coeffs_local[3] = {0.f};
+                coeffs += gaussian_id * K * 3; dirs += gaussian_id;
+                for (int c =0; c < 4 ; c++) {
+                    sh_coeffs_to_color_fast_vjp(degrees_to_use, c, dirs,
+                        coeffs, v_rgb_local, v_coeffs_local, nullptr
+                        );
+                }
 
                 // v_depths += global_idx;
                 means += gaussian_id * 3;
@@ -346,6 +360,8 @@ __global__ void jacobian_bwd_kernel(
                     quat_scale_to_covar_vjp<S>(quat, scale, rotmat, v_covar, v_quat, v_scale);
 
                 }
+
+                // 写入v_opacities, v_coeffs
 
                 // 写入v_viewmats
                 // if (viewmats != nullptr) {
