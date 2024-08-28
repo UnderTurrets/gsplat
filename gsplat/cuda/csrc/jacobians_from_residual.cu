@@ -20,8 +20,8 @@ namespace cg = cooperative_groups;
  ****************************************************************************/
 
 template <uint32_t COLOR_DIM, typename S>
-__global__ void jacobian_bwd_kernel(
-    const uint32_t C, const uint32_t N, const uint32_t n_isects, const bool packed,
+__global__ void jacobians_bwd_kernel(
+    const uint32_t C, const uint32_t N, const uint32_t n_isects,
     // fwd inputs
     const S *__restrict__ means,    // [N, 3]
     const S *__restrict__ covars,   // [N, 6] optional
@@ -40,7 +40,8 @@ __global__ void jacobian_bwd_kernel(
     const S *__restrict__ backgrounds,   // [C, COLOR_DIM] or [nnz, COLOR_DIM]
     const bool *__restrict__ masks,      // [C, tile_height, tile_width]
     // 辅助信息
-    const uint32_t K, const uint32_t degrees_to_use, const vec3<S> *__restrict__ dirs, // [N, 3]
+    const uint32_t parameters_per_gaussian,
+    uint32_t K, const uint32_t degrees_to_use, const vec3<S> *__restrict__ dirs, // [N, 3]
     const uint32_t image_width, const uint32_t image_height,
     const uint32_t tile_size, const uint32_t tile_width, const uint32_t tile_height,
     const int32_t *__restrict__ tile_offsets, // [C, tile_height, tile_width]
@@ -49,22 +50,25 @@ __global__ void jacobian_bwd_kernel(
     const S *__restrict__ render_alphas,  // [C, image_height, image_width, 1]
     const int32_t *__restrict__ last_ids, // [C, image_height, image_width]
     // grad input which is automatically computed by torch
-    const S *__restrict__ v_render_colors, // [C, image_height, image_width, COLOR_DIM]
-    const S *__restrict__ v_render_alphas, // [C, image_height, image_width, 1]
+    const S *__restrict__ residual_render_colors, // [C, image_height, image_width, COLOR_DIM]
+    // const S *__restrict__ residual_render_alphas, // [C, image_height, image_width, 1]
     // output
-    int32_t *__restrict__ nnz_per_pixel, // [C, image_width * image_height]
+    const uint32_t *__restrict__ cum_nnz_per_pixel, // [C, image_width * image_height]
+    uint32_t *__restrict__ nnz_per_pixel, // [C, image_width * image_height]
     // grad outputs
-    S * __restrict__ jacobian_row_indices, // [C, nnz_Jacobian]
-    S *__restrict__ jacobian_col_indices, // [C, nnz_Jacobian]
-    S *__restrict__ jacobian_values // [C, nnz_Jacobian]
+    uint32_t * __restrict__ jacobian_camera_indices, // [nnz_Jacobians]
+    uint32_t * __restrict__ jacobian_row_indices, // [nnz_Jacobians]
+    uint32_t *__restrict__ jacobian_col_indices, // [nnz_Jacobians]
+    S *__restrict__ jacobian_values // [nnz_Jacobians]
 
     // S *__restrict__ v_means,   // [N, 3]
     // S *__restrict__ v_covars,  // [N, 6] optional
     // S *__restrict__ v_quats,   // [N, 4] optional
     // S *__restrict__ v_scales,  // [N, 3] optional
-    // S *__restrict__ v_viewmats, // [C, 4, 4] optional
-    // S *__restrict__ v_colors,            // [C, N, COLOR_DIM] or [nnz, COLOR_DIM]
-    // S *__restrict__ v_opacities          // [C, N] or [nnz]
+    // S *__restrict__ v_coeffs,   // [N, K, 3]
+    // S *__restrict__ v_opacities,  // [C, N] or [nnz]
+    // S *__restrict__ v_viewmats // [C, 4, 4] optional
+
 ) {
     auto block = cg::this_thread_block();
     // block.group_index().y表示当前的tile在这张图片上的第几行tile，block.group_index().z表示当前的tile在这张图片上的第几列tile
@@ -76,13 +80,21 @@ __global__ void jacobian_bwd_kernel(
     // i、j表示当前线程处理的pixel在图片中的坐标
     uint32_t i = block.group_index().y * tile_size + block.thread_index().y;
     uint32_t j = block.group_index().z * tile_size + block.thread_index().x;
-
+    // clamp this value to the last pixel
+    const uint32_t pix_id = min(i * image_width + j, image_width * image_height - 1);
+    const uint32_t pix_global_id = camera_id * image_height * image_width + pix_id;
+    // 像素中心
+    const S px = (S)j + 0.5f;
+    const S py = (S)i + 0.5f;
     // 偏移指针到当前图片
     tile_offsets += camera_id * tile_height * tile_width;
     render_alphas += camera_id * image_height * image_width;
     last_ids += camera_id * image_height * image_width;
-    v_render_colors += camera_id * image_height * image_width * COLOR_DIM;
-    v_render_alphas += camera_id * image_height * image_width;
+    residual_render_colors += camera_id * image_height * image_width * COLOR_DIM;
+    // residual_render_alphas += camera_id * image_height * image_width;
+
+    // keep not rasterizing threads around for reading data
+    bool inside = (i < image_height && j < image_width);
 
     if (backgrounds != nullptr) {
         backgrounds += camera_id * COLOR_DIM;
@@ -90,20 +102,11 @@ __global__ void jacobian_bwd_kernel(
     if (masks != nullptr) {
         masks += camera_id * tile_height * tile_width;
     }
-
     // when the mask is provided, do nothing and return if
     // this tile is labeled as False
     if (masks != nullptr && !masks[tile_id]) {
         return;
     }
-
-    const S px = (S)j + 0.5f;
-    const S py = (S)i + 0.5f;
-    // clamp this value to the last pixel
-    const int32_t pix_id = min(i * image_width + j, image_width * image_height - 1);
-
-    // keep not rasterizing threads around for reading data
-    bool inside = (i < image_height && j < image_width);
 
     // have all threads in tile process the same gaussians in batches
     // first collect gaussians between range.x and range.y in batches
@@ -117,6 +120,13 @@ __global__ void jacobian_bwd_kernel(
     const uint32_t block_size = block.size();
     const uint32_t num_batches =
         (range_end - range_start + block_size - 1) / block_size;
+    // index of last gaussian to contribute to this pixel
+    const int32_t bin_final = inside ? last_ids[pix_id] : 0;
+    if (cum_nnz_per_pixel == nullptr) {
+        nnz_per_pixel[pix_global_id] = static_cast<uint32_t>(bin_final-range_start);
+        return;
+    }
+    uint32_t offset = (pix_global_id==0) ? 0 : cum_nnz_per_pixel[pix_global_id-1];
 
     // this is the T AFTER the last gaussian in this pixel
     S T_final = 1.0f - render_alphas[pix_id];
@@ -124,16 +134,14 @@ __global__ void jacobian_bwd_kernel(
     // the contribution from gaussians behind the current one
     // 式子（18）
     S buffer[COLOR_DIM] = {0.f};
-    // index of last gaussian to contribute to this pixel
-    const int32_t bin_final = inside ? last_ids[pix_id] : 0;
 
     // df/d_out for this pixel
     S v_render_c[COLOR_DIM];
     PRAGMA_UNROLL
     for (uint32_t k = 0; k < COLOR_DIM; ++k) {
-        v_render_c[k] = v_render_colors[pix_id * COLOR_DIM + k];
+        v_render_c[k] = residual_render_colors[pix_id * COLOR_DIM + k];
     }
-    const S v_render_a = v_render_alphas[pix_id];
+    // const S v_render_a = residual_render_alphas[pix_id];
 
     // 获得分配给这个block的共享内存的指针
     extern __shared__ int s[];
@@ -149,7 +157,7 @@ __global__ void jacobian_bwd_kernel(
     const uint32_t tr = block.thread_rank();
     // 拿到这个tile里位于最后索引的gaussian的索引id
     cg::thread_block_tile<32> warp = cg::tiled_partition<32>(block);
-    const int32_t warp_bin_final = cg::reduce(warp, bin_final, cg::greater<int>());
+    const int32_t warp_bin_final = cg::reduce(warp, bin_final, cg::greater<int32_t>());
     // 当前线程按照深度从大到小遍历range_end-range_start个gaussians，直到done
     for (uint32_t batch_idx = 0; batch_idx < num_batches; ++batch_idx) {
         // resync all threads before writing next batch of shared mem
@@ -232,9 +240,9 @@ __global__ void jacobian_bwd_kernel(
                                v_render_c[k];
                 }
 
-                v_alpha += T_final * ra * v_render_a;
+                // v_alpha += T_final * ra * v_render_a;
 
-                // 若有background，根据loss的公式推算出background相关梯度
+                // 若有background，推算出background相关梯度
                 // contribution from background pixel
                 if (backgrounds != nullptr) {
                     S accum = 0.f;
@@ -270,10 +278,11 @@ __global__ void jacobian_bwd_kernel(
                 const int32_t global_idx = id_batch[t]; // flatten index in [C * N] or [nnz]
                 const uint32_t gaussian_id = global_idx % N;
 
-                S v_coeffs_local[3] = {0.f};
+                S v_coeffs_local[48]={0.f};
                 coeffs += gaussian_id * K * 3; dirs += gaussian_id;
-                for (int c =0; c < 4 ; c++) {
-                    sh_coeffs_to_color_fast_vjp(degrees_to_use, c, dirs,
+                PRAGMA_UNROLL
+                for (uint32_t c =0; c < 3 ; c++) {
+                    sh_coeffs_to_color_fast_vjp<S>(degrees_to_use, c, *dirs,
                         coeffs, v_rgb_local, v_coeffs_local, nullptr
                         );
                 }
@@ -337,7 +346,7 @@ __global__ void jacobian_bwd_kernel(
                 // vjp: transform Gaussian covariance to camera space
                 vec3<S> v_mean(0.f); mat3<S> v_covar(0.f);
                 mat3<S> v_R(0.f); vec3<S> v_t(0.f);
-                pos_world_to_cam_vjp(R, t, glm::make_vec3(means), v_mean_c, v_R, v_t, v_mean);
+                pos_world_to_cam_vjp(R, translate, glm::make_vec3(means), v_mean_c, v_R, v_t, v_mean);
                 covar_world_to_cam_vjp(R, covar, v_covar_c, v_R, v_covar);
 
                 // 写入v_means
@@ -364,7 +373,7 @@ __global__ void jacobian_bwd_kernel(
                 // 写入v_opacities, v_coeffs
 
                 // 写入v_viewmats
-                // if (viewmats != nullptr) {
+                // if (v_viewmatsats != nullptr) {
                 //     PRAGMA_UNROLL
                 //     for (uint32_t p = 0; p < 3; p++) { // rows
                 //         PRAGMA_UNROLL
@@ -382,40 +391,56 @@ __global__ void jacobian_bwd_kernel(
 }
 
 template <uint32_t CDIM>
-std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>
+std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>
 call_kernel_with_dim(
-    // Gaussian parameters
-    const torch::Tensor &means2d,                   // [C, N, 2] or [nnz, 2]
-    const torch::Tensor &conics,                    // [C, N, 3] or [nnz, 3]
-    const torch::Tensor &colors,                    // [C, N, 3] or [nnz, 3]
-    const torch::Tensor &opacities,                 // [C, N] or [nnz]
-    const at::optional<torch::Tensor> &backgrounds, // [C, 3]
-    const at::optional<torch::Tensor> &masks,       // [C, tile_height, tile_width]
-    // image size
-    const uint32_t image_width, const uint32_t image_height, const uint32_t tile_size,
-    // intersections
-    const torch::Tensor &tile_offsets, // [C, tile_height, tile_width]
-    const torch::Tensor &flatten_ids,  // [n_isects]
-    // forward outputs
-    const torch::Tensor &render_alphas, // [C, image_height, image_width, 1]
-    const torch::Tensor &last_ids,      // [C, image_height, image_width]
-    // gradients of outputs
-    const torch::Tensor &v_render_colors, // [C, image_height, image_width, 3]
-    const torch::Tensor &v_render_alphas, // [C, image_height, image_width, 1]
-    // options
-    bool absgrad) {
-
-    DEVICE_GUARD(means2d);
+    // gaussian parameters
+    const torch::Tensor & means,    // [N, 3]
+    const at::optional<torch::Tensor> & covars,   // [N, 6] optional
+    const at::optional<torch::Tensor> & quats,    // [N, 4] optional
+    const at::optional<torch::Tensor> & scales,   // [N, 3] optional
+    const torch::Tensor & coeffs,     // [N, K, 3]
+    const torch::Tensor & opacities,     // [C, N] or [nnz]
+    const torch::Tensor & viewmats, // [C, 4, 4]
+    const torch::Tensor & Ks,       // [C, 3, 3]
+    // 中间变量
+    const torch::Tensor & colors,        // [C, N, COLOR_DIM] or [nnz, COLOR_DIM]
+    const torch::Tensor & means2d, // [C, N, 2] or [nnz, 2]
+    const torch::Tensor & conics,  // [C, N, 3] or [nnz, 3]
+    const at::optional<torch::Tensor> & backgrounds,   // [C, COLOR_DIM] or [nnz, COLOR_DIM]
+    const at::optional<torch::Tensor> & masks,      // [C, tile_height, tile_width]
+    // 辅助信息
+    const uint32_t degrees_to_use, const torch::Tensor & dirs, // [N, 3]
+    const uint32_t tile_size,
+    const torch::Tensor & tile_offsets, // [C, tile_height, tile_width]
+    const torch::Tensor & flatten_ids,  // [n_isects]
+    const torch::Tensor & render_alphas,  // [C, image_height, image_width, 1]
+    const torch::Tensor & last_ids, // [C, image_height, image_width]
+    // residual
+    const torch::Tensor & residual_render_colors // [C, image_height, image_width, COLOR_DIM]
+    ) {
+    DEVICE_GUARD(means);
+    CHECK_INPUT(means);
+    CHECK_INPUT(coeffs);
+    CHECK_INPUT(viewmats)
+    CHECK_INPUT(opacities);
+    CHECK_INPUT(viewmats);
+    CHECK_INPUT(Ks);
     CHECK_INPUT(means2d);
     CHECK_INPUT(conics);
-    CHECK_INPUT(colors);
-    CHECK_INPUT(opacities);
     CHECK_INPUT(tile_offsets);
     CHECK_INPUT(flatten_ids);
     CHECK_INPUT(render_alphas);
     CHECK_INPUT(last_ids);
-    CHECK_INPUT(v_render_colors);
-    CHECK_INPUT(v_render_alphas);
+    CHECK_INPUT(residual_render_colors);
+    if (covars.has_value()) {
+        CHECK_INPUT(covars.value());
+    }
+    if (quats.has_value()) {
+        CHECK_INPUT(quats.value());
+    }
+    if (scales.has_value()) {
+        CHECK_INPUT(scales.value());
+    }
     if (backgrounds.has_value()) {
         CHECK_INPUT(backgrounds.value());
     }
@@ -423,87 +448,132 @@ call_kernel_with_dim(
         CHECK_INPUT(masks.value());
     }
 
-    bool packed = means2d.dim() == 2;
-
     uint32_t C = tile_offsets.size(0);         // number of cameras
-    uint32_t N = packed ? 0 : means2d.size(1); // number of gaussians
+    uint32_t N = means2d.size(1); // number of gaussians
     uint32_t n_isects = flatten_ids.size(0);
     uint32_t COLOR_DIM = colors.size(-1);
     uint32_t tile_height = tile_offsets.size(1);
     uint32_t tile_width = tile_offsets.size(2);
+    uint32_t K = coeffs.size(-2);
+    uint32_t image_width = residual_render_colors.size(-3);
+    uint32_t image_height = residual_render_colors.size(-2);
+    uint32_t parameters_per_gaussian;
+    if (covars.has_value()) {
+        parameters_per_gaussian = 3 + 6 + K + 1;
+    }else {
+        parameters_per_gaussian = 3 + 7 + K + 1;
+    }
 
     // Each block covers a tile on the image. In total there are
     // C * tile_height * tile_width blocks.
     dim3 threads = {tile_size, tile_size, 1};
     dim3 blocks = {C, tile_height, tile_width};
 
-    torch::Tensor v_means2d = torch::zeros_like(means2d);
-    torch::Tensor v_conics = torch::zeros_like(conics);
-    torch::Tensor v_colors = torch::zeros_like(colors);
-    torch::Tensor v_opacities = torch::zeros_like(opacities);
-    torch::Tensor v_means2d_abs;
-    if (absgrad) {
-        v_means2d_abs = torch::zeros_like(means2d);
-    }
+    torch::Tensor nnz_per_pixel = torch::zeros({C,image_width*image_height}, means.options().dtype(torch::kUInt32));
+    torch::Tensor cum_nnz_per_pixel; uint nnz_jacobian;
 
+    const uint32_t shared_mem = tile_size * tile_size *
+                            (sizeof(int32_t) + sizeof(vec3<float>) +
+                             sizeof(vec3<float>) + sizeof(float) * COLOR_DIM);
+    at::cuda::CUDAStream stream = at::cuda::getCurrentCUDAStream();
+
+    // first pass
     if (n_isects) {
-        const uint32_t shared_mem = tile_size * tile_size *
-                                    (sizeof(int32_t) + sizeof(vec3<float>) +
-                                     sizeof(vec3<float>) + sizeof(float) * COLOR_DIM);
-        at::cuda::CUDAStream stream = at::cuda::getCurrentCUDAStream();
-
-        if (cudaFuncSetAttribute(jacobian_bwd_kernel<CDIM, float>,
+        if (cudaFuncSetAttribute(jacobians_bwd_kernel<CDIM, float>,
                                  cudaFuncAttributeMaxDynamicSharedMemorySize,
                                  shared_mem) != cudaSuccess) {
             AT_ERROR("Failed to set maximum shared memory size (requested ", shared_mem,
                      " bytes), try lowering tile_size.");
         }
-        jacobian_bwd_kernel<CDIM, float>
-            <<<blocks, threads, shared_mem, stream>>>(
-                C, N, n_isects, packed,
+        jacobians_bwd_kernel<CDIM, float><<<blocks, threads, shared_mem, stream>>>(
+                C, N, n_isects,
+                means.data_ptr<float>(),
+                covars.has_value() ? covars.value().data_ptr<float>() : nullptr,
+                quats.has_value() ? quats.value().data_ptr<float>() : nullptr,
+                scales.has_value() ? scales.value().data_ptr<float>() : nullptr,
+                coeffs.data_ptr<float>(),opacities.data_ptr<float>(),
+                viewmats.data_ptr<float>(), Ks.data_ptr<float>(),colors.data_ptr<float>(),
                 reinterpret_cast<vec2<float> *>(means2d.data_ptr<float>()),
                 reinterpret_cast<vec3<float> *>(conics.data_ptr<float>()),
-                colors.data_ptr<float>(), opacities.data_ptr<float>(),
-                backgrounds.has_value() ? backgrounds.value().data_ptr<float>()
-                                        : nullptr,
+                backgrounds.has_value() ? backgrounds.value().data_ptr<float>(): nullptr,
                 masks.has_value() ? masks.value().data_ptr<bool>(): nullptr,
+                parameters_per_gaussian,K,degrees_to_use,
+                reinterpret_cast<vec3<float> *>(dirs.data_ptr<float>()),
                 image_width, image_height, tile_size, tile_width, tile_height,
                 tile_offsets.data_ptr<int32_t>(), flatten_ids.data_ptr<int32_t>(),
                 render_alphas.data_ptr<float>(), last_ids.data_ptr<int32_t>(),
-                v_render_colors.data_ptr<float>(), v_render_alphas.data_ptr<float>(),
-                absgrad
-                    ? reinterpret_cast<vec2<float> *>(v_means2d_abs.data_ptr<float>())
-                    : nullptr,
-                reinterpret_cast<vec2<float> *>(v_means2d.data_ptr<float>()),
-                reinterpret_cast<vec3<float> *>(v_conics.data_ptr<float>()),
-                v_colors.data_ptr<float>(), v_opacities.data_ptr<float>());
+                residual_render_colors.data_ptr<float>(), nullptr, nnz_per_pixel.data_ptr<uint32_t>(),
+                nullptr,nullptr,nullptr,nullptr
+                );
+        cum_nnz_per_pixel = torch::cumsum(nnz_per_pixel.to(torch::kInt64).view({-1}), 0).to(torch::kUInt32);
+        nnz_jacobian = cum_nnz_per_pixel[-1].item<uint>();
+    }else {
+        nnz_jacobian = 0;
     }
-
-    return std::make_tuple(v_means2d_abs, v_means2d, v_conics, v_colors, v_opacities);
+    //second pass
+    torch::Tensor jacobian_camera_indices = torch::empty({nnz_jacobian}, means.options().dtype(torch::kUInt32));
+    torch::Tensor jacobian_row_indices = torch::empty({nnz_jacobian}, means.options().dtype(torch::kUInt32));
+    torch::Tensor jacobian_col_indices = torch::empty({nnz_jacobian}, means.options().dtype(torch::kUInt32));
+    torch::Tensor jacobian_values = torch::empty({nnz_jacobian}, means.options());
+    if (nnz_jacobian) {
+        if (cudaFuncSetAttribute(jacobians_bwd_kernel<CDIM, float>,
+                                 cudaFuncAttributeMaxDynamicSharedMemorySize,
+                                 shared_mem) != cudaSuccess) {
+            AT_ERROR("Failed to set maximum shared memory size (requested ", shared_mem,
+                     " bytes), try lowering tile_size.");
+                                 }
+        jacobians_bwd_kernel<CDIM, float><<<blocks, threads, shared_mem, stream>>>(
+                C, N, n_isects,
+                means.data_ptr<float>(),
+                covars.has_value() ? covars.value().data_ptr<float>() : nullptr,
+                quats.has_value() ? quats.value().data_ptr<float>() : nullptr,
+                scales.has_value() ? scales.value().data_ptr<float>() : nullptr,
+                coeffs.data_ptr<float>(),opacities.data_ptr<float>(),
+                viewmats.data_ptr<float>(), Ks.data_ptr<float>(),colors.data_ptr<float>(),
+                reinterpret_cast<vec2<float> *>(means2d.data_ptr<float>()),
+                reinterpret_cast<vec3<float> *>(conics.data_ptr<float>()),
+                backgrounds.has_value() ? backgrounds.value().data_ptr<float>(): nullptr,
+                masks.has_value() ? masks.value().data_ptr<bool>(): nullptr,
+                parameters_per_gaussian,K,degrees_to_use,
+                reinterpret_cast<vec3<float> *>(dirs.data_ptr<float>()),
+                image_width, image_height, tile_size, tile_width, tile_height,
+                tile_offsets.data_ptr<int32_t>(), flatten_ids.data_ptr<int32_t>(),
+                render_alphas.data_ptr<float>(), last_ids.data_ptr<int32_t>(),
+                residual_render_colors.data_ptr<float>(), cum_nnz_per_pixel.data_ptr<uint32_t>(), nullptr,
+                jacobian_camera_indices.data_ptr<uint32_t>(),jacobian_row_indices.data_ptr<uint32_t>(),
+                jacobian_col_indices.data_ptr<uint32_t>(),jacobian_values.data_ptr<float>()
+                );
+    }
+    return std::make_tuple(jacobian_camera_indices,jacobian_row_indices,jacobian_col_indices,jacobian_values);
 }
 
-std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>
-jacobian_bwd_tensor(
-    // Gaussian parameters
-    const torch::Tensor &means2d,                   // [C, N, 2] or [nnz, 2]
-    const torch::Tensor &conics,                    // [C, N, 3] or [nnz, 3]
-    const torch::Tensor &colors,                    // [C, N, 3] or [nnz, 3]
-    const torch::Tensor &opacities,                 // [C, N] or [nnz]
-    const at::optional<torch::Tensor> &backgrounds, // [C, 3]
-    const at::optional<torch::Tensor> &masks,       // [C, tile_height, tile_width]
-    // image size
-    const uint32_t image_width, const uint32_t image_height, const uint32_t tile_size,
-    // intersections
-    const torch::Tensor &tile_offsets, // [C, tile_height, tile_width]
-    const torch::Tensor &flatten_ids,  // [n_isects]
-    // forward outputs
-    const torch::Tensor &render_alphas, // [C, image_height, image_width, 1]
-    const torch::Tensor &last_ids,      // [C, image_height, image_width]
-    // gradients inputs from loss which is automatically computed by torch
-    const torch::Tensor &v_render_colors, // [C, image_height, image_width, 3]
-    const torch::Tensor &v_render_alphas, // [C, image_height, image_width, 1]
-    // options
-    bool absgrad) {
+std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>
+jacobians_bwd_tensor(
+    // gaussian parameters
+    const torch::Tensor & means,    // [N, 3]
+    const at::optional<torch::Tensor> & covars,   // [N, 6] optional
+    const at::optional<torch::Tensor> & quats,    // [N, 4] optional
+    const at::optional<torch::Tensor> & scales,   // [N, 3] optional
+    const torch::Tensor & coeffs,     // [N, K, 3]
+    const torch::Tensor & opacities,     // [C, N] or [nnz]
+    const torch::Tensor & viewmats, // [C, 4, 4]
+    const torch::Tensor & Ks,       // [C, 3, 3]
+    // 中间变量
+    const torch::Tensor & colors,        // [C, N, COLOR_DIM] or [nnz, COLOR_DIM]
+    const torch::Tensor & means2d, // [C, N, 2] or [nnz, 2]
+    const torch::Tensor & conics,  // [C, N, 3] or [nnz, 3]
+    const at::optional<torch::Tensor> & backgrounds,   // [C, COLOR_DIM] or [nnz, COLOR_DIM]
+    const at::optional<torch::Tensor> & masks,      // [C, tile_height, tile_width]
+    // 辅助信息
+    const uint32_t degrees_to_use, const torch::Tensor & dirs, // [N, 3]
+    const uint32_t tile_size,
+    const torch::Tensor & tile_offsets, // [C, tile_height, tile_width]
+    const torch::Tensor & flatten_ids,  // [n_isects]
+    const torch::Tensor & render_alphas,  // [C, image_height, image_width, 1]
+    const torch::Tensor & last_ids, // [C, image_height, image_width]
+    // residual
+    const torch::Tensor & residual_render_colors // [C, image_height, image_width, COLOR_DIM]
+){
 
     CHECK_INPUT(colors);
     uint32_t COLOR_DIM = colors.size(-1);
@@ -511,9 +581,10 @@ jacobian_bwd_tensor(
 #define __GS__CALL_(N)                                                                 \
     case N:                                                                            \
         return call_kernel_with_dim<N>(                                                \
-            means2d, conics, colors, opacities, backgrounds, masks, image_width,       \
-            image_height, tile_size, tile_offsets, flatten_ids, render_alphas,         \
-            last_ids, v_render_colors, v_render_alphas, absgrad);
+            means, covars, quats, scales, coeffs, opacities, viewmats,Ks,              \
+            colors, means2d, conics, backgrounds, masks,                               \
+            degrees_to_use, dirs, tile_size, tile_offsets,flatten_ids,                 \
+            render_alphas,last_ids,residual_render_colors);
 
     switch (COLOR_DIM) {
         __GS__CALL_(1)

@@ -39,7 +39,7 @@ __global__ void isect_tiles(
     // parallelize over C * N.
     // 线程块数量：((C*N or nnz)-1)/N_THREADS + 1
     // 每个线程块的线程数量：N_THREADS
-    uint32_t idx = cg::this_grid().thread_rank();
+    const uint32_t idx = cg::this_grid().thread_rank();
     // 区分是否为第一次进入函数
     bool first_pass = cum_tiles_per_gauss == nullptr;
     if (idx >= (packed ? nnz : C * N)) {
@@ -217,9 +217,9 @@ isect_tiles_tensor(const torch::Tensor &means2d, // [C, N, 2] or [nnz, 2]
         // DoubleBuffer reduce the auxiliary memory usage from O(N+P) to O(P)
         if (double_buffer) {
             // Create a set of DoubleBuffers to wrap pairs of device pointers
-            cub::DoubleBuffer<int64_t> d_keys(isect_ids.data_ptr<int64_t>(),
+            cub::DoubleBuffer d_keys(isect_ids.data_ptr<int64_t>(),
                                               isect_ids_sorted.data_ptr<int64_t>());
-            cub::DoubleBuffer<int32_t> d_values(flatten_ids.data_ptr<int32_t>(),
+            cub::DoubleBuffer d_values(flatten_ids.data_ptr<int32_t>(),
                                                 flatten_ids_sorted.data_ptr<int32_t>());
             CUB_WRAPPER(cub::DeviceRadixSort::SortPairs, d_keys, d_values, n_isects, 0,
                         32 + tile_n_bits + cam_n_bits, stream);
@@ -267,7 +267,7 @@ __global__ void isect_offset_encode(const uint32_t n_isects,
     // isect_ids的长度是n_isects，表示一共有n_isects个重叠的tile，而isect_ids[idx] >> 32表明了这个tile在哪一张图片的哪个位置
     // 线程块数量：(n_isects + N_THREADS - 1) / N_THREADS
     // 每个线程块的线程数量：N_THREADS
-    uint32_t idx = cg::this_grid().thread_rank();
+    const uint32_t idx = cg::this_grid().thread_rank();
     if (idx >= n_isects)
         return;
 

@@ -23,7 +23,7 @@ fully_fused_projection_fwd_kernel(const uint32_t C, const uint32_t N,
                                   const T *__restrict__ scales,   // [N, 3] optional
                                   const T *__restrict__ viewmats, // [C, 4, 4]
                                   const T *__restrict__ Ks,       // [C, 3, 3]
-                                  const int32_t image_width, const int32_t image_height,
+                                  const uint32_t image_width, const uint32_t image_height,
                                   const T eps2d, const T near_plane, const T far_plane,
                                   const T radius_clip,
                                   // outputs
@@ -35,7 +35,7 @@ fully_fused_projection_fwd_kernel(const uint32_t C, const uint32_t N,
 ) {
     // parallelize over C * N.
     // 获得全局索引
-    uint32_t idx = cg::this_grid().thread_rank();
+    const uint32_t idx = cg::this_grid().thread_rank();
     if (idx >= C * N) {
         return;
     }
@@ -169,6 +169,7 @@ fully_fused_projection_fwd_tensor(
     uint32_t C = viewmats.size(0); // number of cameras
     at::cuda::CUDAStream stream = at::cuda::getCurrentCUDAStream();
 
+    // radii必须是有符号整型，否则无法进行'radii > 0'的筛选
     torch::Tensor radii = torch::empty({C, N}, means.options().dtype(torch::kInt32));
     torch::Tensor means2d = torch::empty({C, N, 2}, means.options());
     torch::Tensor depths = torch::empty({C, N}, means.options());

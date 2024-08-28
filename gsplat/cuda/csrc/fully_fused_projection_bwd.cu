@@ -25,7 +25,7 @@ __global__ void fully_fused_projection_bwd_kernel(
     const T *__restrict__ scales,   // [N, 3] optional
     const T *__restrict__ viewmats, // [C, 4, 4]
     const T *__restrict__ Ks,       // [C, 3, 3]
-    const int32_t image_width, const int32_t image_height, const T eps2d,
+    const uint32_t image_width, const uint32_t image_height, const T eps2d,
     // fwd outputs
     const int32_t *__restrict__ radii,       // [C, N]
     const T *__restrict__ conics,        // [C, N, 3]
@@ -43,7 +43,7 @@ __global__ void fully_fused_projection_bwd_kernel(
     T *__restrict__ v_viewmats // [C, 4, 4] optional
 ) {
     // parallelize over C * N.
-    uint32_t idx = cg::this_grid().thread_rank();
+    const uint32_t idx = cg::this_grid().thread_rank();
     if (idx >= C * N || radii[idx] <= 0) {
         return;
     }

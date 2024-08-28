@@ -93,15 +93,15 @@ class LevenbergMarquardt(Optimizer):
 
     @staticmethod
     def update(group: Dict[str, Any], delta_x: Tensor) -> None:
-        assert (delta_x.dim() == 1) or (delta_x.dim() == 2 and delta_x.size()[-1] == 1), "delta_x must be a vector"
-        if delta_x.dim() == 2 and delta_x.size()[-1] == 1:
+        assert (delta_x.dim() == 1) or (delta_x.dim() == 2 and delta_x.size(-1) == 1), "delta_x must be a vector"
+        if delta_x.dim() == 2 and delta_x.size(-1) == 1:
             delta_x = delta_x.reshape(-1)
         params = group['params']
 
         params_dim = 0
         for p in params:
             params_dim += p.numel()
-        assert params_dim == delta_x.size()[0], "params_dim must be equal to delta_x.size()[0]"
+        assert params_dim == delta_x.size(0), "params_dim must be equal to delta_x.size(0)"
 
         offset = 0
         for p in params:
@@ -119,7 +119,7 @@ class LevenbergMarquardt(Optimizer):
         params_dim = 0
         for p in params:
             params_dim += p.numel()
-        assert params_dim == params_vector.size()[0], "params_dim must be equal to params_vector.size()[0]"
+        assert params_dim == params_vector.size(0), "params_dim must be equal to params_vector.size(0)"
 
         offset = 0
         for p in params:
@@ -177,11 +177,11 @@ class LevenbergMarquardt(Optimizer):
                 jacobian.layout == torch.strided), jacobian.layout
         assert jacobian.dim() == 2, "Jacobian must be 2-dimensional"
         assert (residual.dim() == 1 or
-                residual.dim() == 2 and residual.size()[-1] == 1), \
+                residual.dim() == 2 and residual.size(-1) == 1), \
             "residual must be a vector."
-        if residual.dim() == 2 and residual.size()[-1] == 1:
+        if residual.dim() == 2 and residual.size(-1) == 1:
             residual = residual.reshape(-1)
-        assert jacobian.size()[0] == residual.size()[0], \
+        assert jacobian.size(0) == residual.size(0), \
             "Jacobian's row must correspond to residual's elements."
 
     def compute_update(self, block_size: int, A: Tensor, b: Tensor):
@@ -193,7 +193,7 @@ class LevenbergMarquardt(Optimizer):
             except Exception as error:
                 print(f"\033[91m {error} \033[0m")
                 current_idx = 0
-                param_dim = b.size()[0]
+                param_dim = b.size(0)
                 update = torch.zeros_like(b)
                 for i in range((param_dim - 1) // block_size + 1):
                     if current_idx + block_size > param_dim:

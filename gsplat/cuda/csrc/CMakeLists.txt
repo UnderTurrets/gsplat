@@ -23,7 +23,7 @@ find_package(Python3 COMPONENTS Development REQUIRED)
 
 # 搜索源文件
 file(GLOB source "*.h" "*.cu" "*.cuh" "*.cpp")
-list(REMOVE_ITEM ${source} "ext.cpp")
+list(REMOVE_ITEM  ${source} "ext.cpp")
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
 # 创建可执行文件

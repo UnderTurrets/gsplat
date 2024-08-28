@@ -66,7 +66,7 @@ __global__ void rasterize_to_pixels_bwd_kernel(
     const S px = (S)j + 0.5f;
     const S py = (S)i + 0.5f;
     // clamp this value to the last pixel
-    const int32_t pix_id = min(i * image_width + j, image_width * image_height - 1);
+    const uint32_t pix_id = min(i * image_width + j, image_width * image_height - 1);
 
     // keep not rasterizing threads around for reading data
     bool inside = (i < image_height && j < image_width);
@@ -83,6 +83,8 @@ __global__ void rasterize_to_pixels_bwd_kernel(
     const uint32_t block_size = block.size();
     const uint32_t num_batches =
         (range_end - range_start + block_size - 1) / block_size;
+    // index of last gaussian to contribute to this pixel
+    const int32_t bin_final = inside ? last_ids[pix_id] : 0;
 
     // 获得分配给这个block的共享内存的指针
     extern __shared__ int s[];
@@ -99,8 +101,6 @@ __global__ void rasterize_to_pixels_bwd_kernel(
     // the contribution from gaussians behind the current one
     // 式子（18）
     S buffer[COLOR_DIM] = {0.f};
-    // index of last gaussian to contribute to this pixel
-    const int32_t bin_final = inside ? last_ids[pix_id] : 0;
 
     // df/d_out for this pixel
     S v_render_c[COLOR_DIM];
@@ -124,10 +124,11 @@ __global__ void rasterize_to_pixels_bwd_kernel(
         // 0 index will be furthest back in batch
         // index of gaussian to load
         // batch end is the index of the last gaussian in the batch
-        // These values can be negative so must be int32 instead of uint32
+        // 'batch_end - tr' can be negative so must be int32 instead of uint32
         // batch_end指向这个batch的最后一个gaussian
         // 这里在准备gaussians参数的时候已经倒序，因为idx = batch_end - tr
         const int32_t batch_end = range_end - 1 - block_size * b;
+        // 若batch_size==batch_end + 1 - range_start，说明是gaussian数量不足block_size的最后一批
         const int32_t batch_size = min(block_size, batch_end + 1 - range_start);
         const int32_t idx = batch_end - tr;
         if (idx >= range_start) {

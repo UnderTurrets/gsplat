@@ -35,9 +35,9 @@ __global__ void rasterize_to_pixels_fwd_kernel(
     auto block = cg::this_thread_block();
     // block.group_index().y表示当前的tile在这张图片上的第几行tile，block.group_index().z表示当前的tile在这张图片上的第几列tile
     // 知道现在处理的是哪一张图片
-    int32_t camera_id = block.group_index().x;
+    uint32_t camera_id = block.group_index().x;
     // 知道现在处理的是这张图片中的哪个tile
-    int32_t tile_id = block.group_index().y * tile_width + block.group_index().z;
+    uint32_t tile_id = block.group_index().y * tile_width + block.group_index().z;
     // block.thread_index().x和block.thread_index().y表示当前线程处理的pixel在tile中的坐标
     // i、j表示当前线程处理的pixel在图片中的坐标
     uint32_t i = block.group_index().y * tile_size + block.thread_index().y;
@@ -59,7 +59,7 @@ __global__ void rasterize_to_pixels_fwd_kernel(
     S px = (S)j + 0.5f;
     S py = (S)i + 0.5f;
     // 获得这个像素在这张图片中的索引
-    int32_t pix_id = i * image_width + j;
+    uint32_t pix_id = i * image_width + j;
 
     // return if out of bounds
     // keep not rasterizing threads around for reading data
@@ -86,14 +86,14 @@ __global__ void rasterize_to_pixels_fwd_kernel(
             : tile_offsets[tile_id + 1];
     const uint32_t block_size = block.size();
     uint32_t num_batches = (range_end - range_start + block_size - 1) / block_size;
+    // index of most recent gaussian to write to this thread's pixel
+    uint32_t cur_idx = 0;
 
     // current visibility left to render
     // transmittance is gonna be used in the backward pass which requires a high
     // numerical precision so we use double for it. However double make bwd 1.5x slower
     // so we stick with float for now.
     S T = 1.0f;
-    // index of most recent gaussian to write to this thread's pixel
-    uint32_t cur_idx = 0;
 
     extern __shared__ int s[];
     int32_t *id_batch = (int32_t *)s; // [block_size]
@@ -115,7 +115,6 @@ __global__ void rasterize_to_pixels_fwd_kernel(
         if (__syncthreads_count(done) >= block_size) {
             break;
         }
-
         // each thread fetch 1 gaussian from front to back
         // index of gaussian to load
         // range_start指向第一批gaussians的第一个gaussian，通过offsets索引得到
@@ -185,7 +184,7 @@ __global__ void rasterize_to_pixels_fwd_kernel(
                 backgrounds == nullptr ? pix_out[k] : (pix_out[k] + T * backgrounds[k]);
         }
         // index in bin of last gaussian in this pixel
-        // 记录最后一个影响该像素的高斯分布的索引
+        // 记录最后一个影响该像素的gaussian的全局索引
         last_ids[pix_id] = static_cast<int32_t>(cur_idx);
     }
 }
@@ -208,7 +207,6 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor> call_kernel_with_dim(
     DEVICE_GUARD(means2d);
     CHECK_INPUT(means2d);
     CHECK_INPUT(conics);
-    CHECK_INPUT(colors);
     CHECK_INPUT(opacities);
     CHECK_INPUT(tile_offsets);
     CHECK_INPUT(flatten_ids);
