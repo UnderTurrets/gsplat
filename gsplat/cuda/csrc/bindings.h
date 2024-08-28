@@ -232,9 +232,32 @@ compute_relocation_tensor(
 // parallelize sovle matrix equation : Ax=b
 torch::Tensor parallelize_sparse_matrix(const torch::Tensor& A, const torch::Tensor& b, const uint32_t block_size);
 
-
-
-
-
+std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>
+jacobians_bwd_tensor(
+    // gaussian parameters
+    const torch::Tensor & means,    // [N, 3]
+    const at::optional<torch::Tensor> & covars,   // [N, 6] optional
+    const at::optional<torch::Tensor> & quats,    // [N, 4] optional
+    const at::optional<torch::Tensor> & scales,   // [N, 3] optional
+    const torch::Tensor & coeffs,     // [N, K, 3]
+    const torch::Tensor & opacities,     // [C, N] or [nnz]
+    const torch::Tensor & viewmats, // [C, 4, 4]
+    const torch::Tensor & Ks,       // [C, 3, 3]
+    // 中间变量
+    const torch::Tensor & colors,        // [C, N, COLOR_DIM] or [nnz, COLOR_DIM]
+    const torch::Tensor & means2d, // [C, N, 2] or [nnz, 2]
+    const torch::Tensor & conics,  // [C, N, 3] or [nnz, 3]
+    const at::optional<torch::Tensor> & backgrounds,   // [C, COLOR_DIM] or [nnz, COLOR_DIM]
+    const at::optional<torch::Tensor> & masks,      // [C, tile_height, tile_width]
+    // 辅助信息
+    const uint32_t degrees_to_use, const torch::Tensor & dirs, // [N, 3]
+    const uint32_t tile_size,
+    const torch::Tensor & tile_offsets, // [C, tile_height, tile_width]
+    const torch::Tensor & flatten_ids,  // [n_isects]
+    const torch::Tensor & render_alphas,  // [C, image_height, image_width, 1]
+    const torch::Tensor & last_ids, // [C, image_height, image_width]
+    // residual
+    const torch::Tensor & residual_render_colors // [C, image_height, image_width, COLOR_DIM]
+);
 
 #endif

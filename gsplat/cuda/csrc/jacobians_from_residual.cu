@@ -53,12 +53,12 @@ __global__ void jacobians_bwd_kernel(
     const S *__restrict__ residual_render_colors, // [C, image_height, image_width, COLOR_DIM]
     // const S *__restrict__ residual_render_alphas, // [C, image_height, image_width, 1]
     // output
-    const uint32_t *__restrict__ cum_nnz_per_pixel, // [C, image_width * image_height]
-    uint32_t *__restrict__ nnz_per_pixel, // [C, image_width * image_height]
+    const int64_t *__restrict__ cum_nnz_per_pixel, // [C, image_width * image_height]
+    int32_t *__restrict__ nnz_per_pixel, // [C, image_width * image_height]
     // grad outputs
-    uint32_t * __restrict__ jacobian_camera_indices, // [nnz_Jacobians]
-    uint32_t * __restrict__ jacobian_row_indices, // [nnz_Jacobians]
-    uint32_t *__restrict__ jacobian_col_indices, // [nnz_Jacobians]
+    int32_t * __restrict__ jacobian_camera_indices, // [nnz_Jacobians]
+    int32_t * __restrict__ jacobian_row_indices, // [nnz_Jacobians]
+    int32_t *__restrict__ jacobian_col_indices, // [nnz_Jacobians]
     S *__restrict__ jacobian_values // [nnz_Jacobians]
 
     // S *__restrict__ v_means,   // [N, 3]
@@ -123,10 +123,10 @@ __global__ void jacobians_bwd_kernel(
     // index of last gaussian to contribute to this pixel
     const int32_t bin_final = inside ? last_ids[pix_id] : 0;
     if (cum_nnz_per_pixel == nullptr) {
-        nnz_per_pixel[pix_global_id] = static_cast<uint32_t>(bin_final-range_start);
+        nnz_per_pixel[pix_global_id] = static_cast<int32_t>(bin_final-range_start);
         return;
     }
-    uint32_t offset = (pix_global_id==0) ? 0 : cum_nnz_per_pixel[pix_global_id-1];
+    auto offset = (pix_global_id==0) ? 0 : cum_nnz_per_pixel[pix_global_id-1];
 
     // this is the T AFTER the last gaussian in this pixel
     S T_final = 1.0f - render_alphas[pix_id];
@@ -469,8 +469,8 @@ call_kernel_with_dim(
     dim3 threads = {tile_size, tile_size, 1};
     dim3 blocks = {C, tile_height, tile_width};
 
-    torch::Tensor nnz_per_pixel = torch::zeros({C,image_width*image_height}, means.options().dtype(torch::kUInt32));
-    torch::Tensor cum_nnz_per_pixel; uint nnz_jacobian;
+    torch::Tensor nnz_per_pixel = torch::zeros({C,image_width*image_height}, means.options().dtype(torch::kInt32));
+    torch::Tensor cum_nnz_per_pixel; int64_t nnz_jacobian;
 
     const uint32_t shared_mem = tile_size * tile_size *
                             (sizeof(int32_t) + sizeof(vec3<float>) +
@@ -502,18 +502,18 @@ call_kernel_with_dim(
                 image_width, image_height, tile_size, tile_width, tile_height,
                 tile_offsets.data_ptr<int32_t>(), flatten_ids.data_ptr<int32_t>(),
                 render_alphas.data_ptr<float>(), last_ids.data_ptr<int32_t>(),
-                residual_render_colors.data_ptr<float>(), nullptr, nnz_per_pixel.data_ptr<uint32_t>(),
+                residual_render_colors.data_ptr<float>(), nullptr, nnz_per_pixel.data_ptr<int32_t>(),
                 nullptr,nullptr,nullptr,nullptr
                 );
-        cum_nnz_per_pixel = torch::cumsum(nnz_per_pixel.to(torch::kInt64).view({-1}), 0).to(torch::kUInt32);
-        nnz_jacobian = cum_nnz_per_pixel[-1].item<uint>();
+        cum_nnz_per_pixel = torch::cumsum(nnz_per_pixel.view({-1}), 0);
+        nnz_jacobian = cum_nnz_per_pixel[-1].item<int64_t>();
     }else {
         nnz_jacobian = 0;
     }
     //second pass
-    torch::Tensor jacobian_camera_indices = torch::empty({nnz_jacobian}, means.options().dtype(torch::kUInt32));
-    torch::Tensor jacobian_row_indices = torch::empty({nnz_jacobian}, means.options().dtype(torch::kUInt32));
-    torch::Tensor jacobian_col_indices = torch::empty({nnz_jacobian}, means.options().dtype(torch::kUInt32));
+    torch::Tensor jacobian_camera_indices = torch::empty({nnz_jacobian}, means.options().dtype(torch::kInt32));
+    torch::Tensor jacobian_row_indices = torch::empty({nnz_jacobian}, means.options().dtype(torch::kInt32));
+    torch::Tensor jacobian_col_indices = torch::empty({nnz_jacobian}, means.options().dtype(torch::kInt32));
     torch::Tensor jacobian_values = torch::empty({nnz_jacobian}, means.options());
     if (nnz_jacobian) {
         if (cudaFuncSetAttribute(jacobians_bwd_kernel<CDIM, float>,
@@ -539,9 +539,9 @@ call_kernel_with_dim(
                 image_width, image_height, tile_size, tile_width, tile_height,
                 tile_offsets.data_ptr<int32_t>(), flatten_ids.data_ptr<int32_t>(),
                 render_alphas.data_ptr<float>(), last_ids.data_ptr<int32_t>(),
-                residual_render_colors.data_ptr<float>(), cum_nnz_per_pixel.data_ptr<uint32_t>(), nullptr,
-                jacobian_camera_indices.data_ptr<uint32_t>(),jacobian_row_indices.data_ptr<uint32_t>(),
-                jacobian_col_indices.data_ptr<uint32_t>(),jacobian_values.data_ptr<float>()
+                residual_render_colors.data_ptr<float>(), cum_nnz_per_pixel.data_ptr<int64_t>(), nullptr,
+                jacobian_camera_indices.data_ptr<int32_t>(),jacobian_row_indices.data_ptr<int32_t>(),
+                jacobian_col_indices.data_ptr<int32_t>(),jacobian_values.data_ptr<float>()
                 );
     }
     return std::make_tuple(jacobian_camera_indices,jacobian_row_indices,jacobian_col_indices,jacobian_values);

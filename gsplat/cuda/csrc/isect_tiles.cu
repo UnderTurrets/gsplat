@@ -96,8 +96,8 @@ __global__ void isect_tiles(
     // 若cum_tiles_per_gauss = [5, 8, 16, 18, 25, 26, 30, 36, 45]，则第4个gaussian覆盖的tiles数量为2，之前所有gaussian覆盖的tiles数量为16
     int64_t cur_idx = (idx == 0) ? 0 : cum_tiles_per_gauss[idx - 1];
    // 譬如，有2张图片，每张图4个tile，n_tiles = 8,isect_ids=[0|0|2, 0|1|2, 0|1|2, 1|0|2, 1|0|2, 1|0|2, 1|1|2, 1|1|2, 1|1|2, 1|2|2],n_isects=10，
-    for (int32_t i = tile_min.y; i < tile_max.y; ++i) {
-        for (int32_t j = tile_min.x; j < tile_max.x; ++j) {
+    for (uint32_t i = tile_min.y; i < tile_max.y; ++i) {
+        for (uint32_t j = tile_min.x; j < tile_max.x; ++j) {
             // 计算当前tile在一张图片中的索引
             int64_t tile_id = i * tile_width + j;
             // e.g. tile_n_bits = 22:
@@ -165,10 +165,11 @@ isect_tiles_tensor(const torch::Tensor &means2d, // [C, N, 2] or [nnz, 2]
     assert(tile_n_bits + cam_n_bits <= 32);
 
     // first pass: compute number of tiles per gaussian
+    // 由于要进行cumsum操作，tiles_per_gauss和cum_tiles_per_gauss必须是int类型而不是uint
     torch::Tensor tiles_per_gauss =
         torch::empty_like(depths, depths.options().dtype(torch::kInt32));
 
-    int64_t n_isects;
+    uint32_t n_isects;
     torch::Tensor cum_tiles_per_gauss;
     if (total_elems) {
         AT_DISPATCH_FLOATING_TYPES_AND2(at::ScalarType::Half, at::ScalarType::BFloat16, means2d.scalar_type(), "isect_tiles_total_elems", [&]() {
@@ -185,7 +186,7 @@ isect_tiles_tensor(const torch::Tensor &means2d, // [C, N, 2] or [nnz, 2]
         // 若cum_tiles_per_gauss = [5, 8, 16, 18, 25, 26, 30, 36, 45]，则第4个gaussian覆盖的tiles数量为2，之前所有gaussian覆盖的tiles数量为16
         // shape:(C*N,)
         cum_tiles_per_gauss = torch::cumsum(tiles_per_gauss.view({-1}), 0);
-        n_isects = cum_tiles_per_gauss[-1].item<int64_t>();
+        n_isects = static_cast<uint32_t>(cum_tiles_per_gauss[-1].item<int64_t>());
     } else {
         n_isects = 0;
     }

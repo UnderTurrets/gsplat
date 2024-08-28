@@ -33,4 +33,5 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("compute_relocation", &compute_relocation_tensor);
 
     m.def("parallelize_sparse_matrix", &parallelize_sparse_matrix);
+    m.def("jacobians_bwd", &jacobians_bwd_tensor);
 }

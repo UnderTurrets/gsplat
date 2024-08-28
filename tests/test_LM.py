@@ -150,4 +150,4 @@ if __name__ == '__main__':
 
 
     cost_factor = CostFactor_1DGS(gaussian_num=50, is_great_init=False, parameter_space=0)
-    costFunc1DGS_LM_optimize(costF=cost_factor, max_iterations=10000, show_process=False, device='cuda')
+    costFunc1DGS_LM_optimize(costF=cost_factor, max_iterations=10000, show_process=True, device='cuda')
