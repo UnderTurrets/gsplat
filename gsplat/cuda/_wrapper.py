@@ -15,10 +15,10 @@ def _make_lazy_cuda_func(name: str) -> Callable:
 
 
 def spherical_harmonics(
-    degrees_to_use: int,
-    dirs: Tensor,  # [..., 3]
-    coeffs: Tensor,  # [..., K, 3]
-    masks: Optional[Tensor] = None,
+        degrees_to_use: int,
+        dirs: Tensor,  # [..., 3]
+        coeffs: Tensor,  # [..., K, 3]
+        masks: Optional[Tensor] = None,
 ) -> Tensor:
     """Computes spherical harmonics.
 
@@ -44,11 +44,11 @@ def spherical_harmonics(
 
 
 def quat_scale_to_covar_preci(
-    quats: Tensor,  # [N, 4],
-    scales: Tensor,  # [N, 3],
-    compute_covar: bool = True,
-    compute_preci: bool = True,
-    triu: bool = False,
+        quats: Tensor,  # [N, 4],
+        scales: Tensor,  # [N, 3],
+        compute_covar: bool = True,
+        compute_preci: bool = True,
+        triu: bool = False,
 ) -> Tuple[Optional[Tensor], Optional[Tensor]]:
     """Converts quaternions and scales to covariance and precision matrices.
 
@@ -78,11 +78,11 @@ def quat_scale_to_covar_preci(
 
 
 def persp_proj(
-    means: Tensor,  # [C, N, 3]
-    covars: Tensor,  # [C, N, 3, 3]
-    Ks: Tensor,  # [C, 3, 3]
-    width: int,
-    height: int,
+        means: Tensor,  # [C, N, 3]
+        covars: Tensor,  # [C, N, 3, 3]
+        Ks: Tensor,  # [C, 3, 3]
+        width: int,
+        height: int,
 ) -> Tuple[Tensor, Tensor]:
     """Perspective projection on Gaussians.
 
@@ -110,9 +110,9 @@ def persp_proj(
 
 
 def world_to_cam(
-    means: Tensor,  # [N, 3]
-    covars: Tensor,  # [N, 3, 3]
-    viewmats: Tensor,  # [C, 4, 4]
+        means: Tensor,  # [N, 3]
+        covars: Tensor,  # [N, 3, 3]
+        viewmats: Tensor,  # [C, 4, 4]
 ) -> Tuple[Tensor, Tensor]:
     """Transforms Gaussians from world to camera coordinate system.
 
@@ -139,21 +139,21 @@ def world_to_cam(
 
 
 def fully_fused_projection(
-    means: Tensor,  # [N, 3]
-    covars: Optional[Tensor],  # [N, 6] or None
-    quats: Optional[Tensor],  # [N, 4] or None
-    scales: Optional[Tensor],  # [N, 3] or None
-    viewmats: Tensor,  # [C, 4, 4]
-    Ks: Tensor,  # [C, 3, 3]
-    width: int,
-    height: int,
-    eps2d: float = 0.3,
-    near_plane: float = 0.01,
-    far_plane: float = 1e10,
-    radius_clip: float = 0.0,
-    packed: bool = False,
-    sparse_grad: bool = False,
-    calc_compensations: bool = False,
+        means: Tensor,  # [N, 3]
+        covars: Optional[Tensor],  # [N, 6] or None
+        quats: Optional[Tensor],  # [N, 4] or None
+        scales: Optional[Tensor],  # [N, 3] or None
+        viewmats: Tensor,  # [C, 4, 4]
+        Ks: Tensor,  # [C, 3, 3]
+        width: int,
+        height: int,
+        eps2d: float = 0.3,
+        near_plane: float = 0.01,
+        far_plane: float = 1e10,
+        radius_clip: float = 0.0,
+        packed: bool = False,
+        sparse_grad: bool = False,
+        calc_compensations: bool = False,
 ) -> Tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
     """Projects Gaussians to 2D.
 
@@ -278,17 +278,17 @@ def fully_fused_projection(
 
 @torch.no_grad()
 def isect_tiles(
-    means2d: Tensor,  # [C, N, 2] or [nnz, 2]
-    radii: Tensor,  # [C, N] or [nnz]
-    depths: Tensor,  # [C, N] or [nnz]
-    tile_size: int,
-    tile_width: int,
-    tile_height: int,
-    sort: bool = True,
-    packed: bool = False,
-    n_cameras: Optional[int] = None,
-    camera_ids: Optional[Tensor] = None,
-    gaussian_ids: Optional[Tensor] = None,
+        means2d: Tensor,  # [C, N, 2] or [nnz, 2]
+        radii: Tensor,  # [C, N] or [nnz]
+        depths: Tensor,  # [C, N] or [nnz]
+        tile_size: int,
+        tile_width: int,
+        tile_height: int,
+        sort: bool = True,
+        packed: bool = False,
+        n_cameras: Optional[int] = None,
+        camera_ids: Optional[Tensor] = None,
+        gaussian_ids: Optional[Tensor] = None,
 ) -> Tuple[Tensor, Tensor, Tensor]:
     """Maps projected Gaussians to intersecting tiles.
 
@@ -352,7 +352,7 @@ def isect_tiles(
 
 @torch.no_grad()
 def isect_offset_encode(
-    isect_ids: Tensor, n_cameras: int, tile_width: int, tile_height: int
+        isect_ids: Tensor, n_cameras: int, tile_width: int, tile_height: int
 ) -> Tensor:
     """Encodes intersection ids to offsets.
 
@@ -371,20 +371,20 @@ def isect_offset_encode(
 
 
 def rasterize_to_pixels(
-    means2d: Tensor,  # [C, N, 2] or [nnz, 2]
-    conics: Tensor,  # [C, N, 3] or [nnz, 3]
-    colors: Tensor,  # [C, N, channels] or [nnz, channels]
-    opacities: Tensor,  # [C, N] or [nnz]
-    image_width: int,
-    image_height: int,
-    tile_size: int,
-    isect_offsets: Tensor,  # [C, tile_height, tile_width]
-    flatten_ids: Tensor,  # [n_isects]
-    backgrounds: Optional[Tensor] = None,  # [C, channels]
-    masks: Optional[Tensor] = None,  # [C, tile_height, tile_width]
-    packed: bool = False,
-    absgrad: bool = False,
-) -> Tuple[Tensor, Tensor]:
+        means2d: Tensor,  # [C, N, 2] or [nnz, 2]
+        conics: Tensor,  # [C, N, 3] or [nnz, 3]
+        colors: Tensor,  # [C, N, channels] or [nnz, channels]
+        opacities: Tensor,  # [C, N] or [nnz]
+        image_width: int,
+        image_height: int,
+        tile_size: int,
+        isect_offsets: Tensor,  # [C, tile_height, tile_width]
+        flatten_ids: Tensor,  # [n_isects]
+        backgrounds: Optional[Tensor] = None,  # [C, channels]
+        masks: Optional[Tensor] = None,  # [C, tile_height, tile_width]
+        packed: bool = False,
+        absgrad: bool = False,
+) -> Tuple[Tensor, Tensor, Tensor]:
     """Rasterizes Gaussians to pixels.
 
     Args:
@@ -407,6 +407,7 @@ def rasterize_to_pixels(
 
         - **Rendered colors**. [C, image_height, image_width, channels]
         - **Rendered alphas**. [C, image_height, image_width, 1]
+        - **last_ids**. [C, image_height, image_width]
     """
 
     C = isect_offsets.size(0)
@@ -436,25 +437,25 @@ def rasterize_to_pixels(
         # TODO: maybe worth to support zero channels?
         raise ValueError(f"Unsupported number of color channels: {channels}")
     if channels not in (
-        1,
-        2,
-        3,
-        4,
-        5,
-        8,
-        9,
-        16,
-        17,
-        32,
-        33,
-        64,
-        65,
-        128,
-        129,
-        256,
-        257,
-        512,
-        513,
+            1,
+            2,
+            3,
+            4,
+            5,
+            8,
+            9,
+            16,
+            17,
+            32,
+            33,
+            64,
+            65,
+            128,
+            129,
+            256,
+            257,
+            512,
+            513,
     ):
         padded_channels = (1 << (channels - 1).bit_length()) - channels
         colors = torch.cat(
@@ -479,13 +480,13 @@ def rasterize_to_pixels(
 
     tile_height, tile_width = isect_offsets.shape[1:3]
     assert (
-        tile_height * tile_size >= image_height
+            tile_height * tile_size >= image_height
     ), f"Assert Failed: {tile_height} * {tile_size} >= {image_height}"
     assert (
-        tile_width * tile_size >= image_width
+            tile_width * tile_size >= image_width
     ), f"Assert Failed: {tile_width} * {tile_size} >= {image_width}"
 
-    render_colors, render_alphas = _RasterizeToPixels.apply(
+    render_colors, render_alphas, last_ids = _RasterizeToPixels.apply(
         means2d.contiguous(),
         conics.contiguous(),
         colors.contiguous(),
@@ -501,23 +502,23 @@ def rasterize_to_pixels(
     )
 
     if padded_channels > 0:
-        render_colors = render_colors[..., :-padded_channels]
-    return render_colors, render_alphas
+        render_colors = render_colors[..., :-padded_channels]  # discard the padded channels
+    return render_colors, render_alphas, last_ids
 
 
 @torch.no_grad()
 def rasterize_to_indices_in_range(
-    range_start: int,
-    range_end: int,
-    transmittances: Tensor,  # [C, image_height, image_width]
-    means2d: Tensor,  # [C, N, 2]
-    conics: Tensor,  # [C, N, 3]
-    opacities: Tensor,  # [C, N]
-    image_width: int,
-    image_height: int,
-    tile_size: int,
-    isect_offsets: Tensor,  # [C, tile_height, tile_width]
-    flatten_ids: Tensor,  # [n_isects]
+        range_start: int,
+        range_end: int,
+        transmittances: Tensor,  # [C, image_height, image_width]
+        means2d: Tensor,  # [C, N, 2]
+        conics: Tensor,  # [C, N, 3]
+        opacities: Tensor,  # [C, N]
+        image_width: int,
+        image_height: int,
+        tile_size: int,
+        isect_offsets: Tensor,  # [C, tile_height, tile_width]
+        flatten_ids: Tensor,  # [n_isects]
 ) -> Tuple[Tensor, Tensor, Tensor]:
     """Rasterizes a batch of Gaussians to images but only returns the indices.
 
@@ -556,10 +557,10 @@ def rasterize_to_indices_in_range(
 
     tile_height, tile_width = isect_offsets.shape[1:3]
     assert (
-        tile_height * tile_size >= image_height
+            tile_height * tile_size >= image_height
     ), f"Assert Failed: {tile_height} * {tile_size} >= {image_height}"
     assert (
-        tile_width * tile_size >= image_width
+            tile_width * tile_size >= image_width
     ), f"Assert Failed: {tile_width} * {tile_size} >= {image_width}"
 
     out_gauss_ids, out_indices = _make_lazy_cuda_func("rasterize_to_indices_in_range")(
@@ -578,6 +579,7 @@ def rasterize_to_indices_in_range(
     out_pixel_ids = out_indices % (image_width * image_height)
     out_camera_ids = out_indices // (image_width * image_height)
     return out_gauss_ids, out_pixel_ids, out_camera_ids
+
 
 def parallelize_sparse_matrix(A: Tensor, b: Tensor, block_size: int) -> Tensor:
     assert (A.layout == torch.sparse_coo or
@@ -598,17 +600,146 @@ def parallelize_sparse_matrix(A: Tensor, b: Tensor, block_size: int) -> Tensor:
     return solve
 
 
+def jacobians_bwd(
+        # gaussian parameters and other parameters
+        means: Tensor,  # [N, 3]
+        covars: Optional[Tensor],  # [N, 6] optional
+        quats: Optional[Tensor],  # [N, 4] optional
+        scales: Optional[Tensor],  # [N, 3] optional
+        coeffs: Tensor,  # [N, K, 3]
+        opacities: Tensor,  # [C, N]
+        viewmats: Tensor,  # [C, 4, 4]
+        Ks: Tensor,  # [C, 3, 3]
+        # 中间变量
+        colors: Tensor,  # [C, N, COLOR_DIM]
+        means2d: Tensor,  # [C, N, 2]
+        conics: Tensor,  # [C, N, 3]
+        backgrounds: Optional[Tensor],  # [C, COLOR_DIM]
+        masks: Optional[Tensor],  # [C, tile_height, tile_width]
+        # 辅助信息
+        degrees_to_use: int,
+        dirs: Tensor,  # [N, 3]
+        tile_size: int,
+        isect_offsets: Tensor,  # [C, tile_height, tile_width]
+        flatten_ids: Tensor,  # [n_isects]
+        render_alphas: Tensor,  # [C, image_height, image_width, 1]
+        last_ids: Tensor,  # [C, image_height, image_width]
+        # residual
+        residual_render_colors: Tensor  # [C, image_height, image_width, COLOR_DIM]
+):
+    C = isect_offsets.size(0)
+    N = means.size(0)
+    assert means.size() == (N, 3), means.size()
+    means = means.contiguous()
+    if covars is not None:
+        assert covars.size() == (N, 6), covars.size()
+        covars = covars.contiguous()
+    else:
+        assert quats is not None, "covars or quats is required"
+        assert scales is not None, "covars or scales is required"
+        assert quats.size() == (N, 4), quats.size()
+        assert scales.size() == (N, 3), scales.size()
+        quats = quats.contiguous()
+        scales = scales.contiguous()
+    assert coeffs.size(0) == N, coeffs.size()
+    coeffs = coeffs.contiguous()
+    assert viewmats.size() == (C, 4, 4), viewmats.size()
+    viewmats = viewmats.contiguous()
+    assert Ks.size() == (C, 3, 3), Ks.size()
+    Ks = Ks.contiguous()
+
+    channels = colors.shape[-1]
+    if channels not in (
+            1,
+            2,
+            3,
+            4,
+            5,
+            8,
+            9,
+            16,
+            17,
+            32,
+            33,
+            64,
+            65,
+            128,
+            129,
+            256,
+            257,
+            512,
+            513,
+    ):raise ValueError(f"Unsupported number of color channels: {channels}")
+
+    assert means2d.shape == (C, N, 2), means2d.shape
+    means2d = means2d.contiguous()
+    assert conics.shape == (C, N, 3), conics.shape
+    conics = conics.contiguous()
+    assert colors.shape[:2] == (C, N), colors.shape
+    colors = colors.contiguous()
+    assert opacities.shape == (C, N), opacities.shape
+    opacities = opacities.contiguous()
+    if backgrounds is not None:
+        assert backgrounds.shape == (C, colors.shape[-1]), backgrounds.shape
+        backgrounds = backgrounds.contiguous()
+    if masks is not None:
+        assert masks.shape == isect_offsets.shape, masks.shape
+        masks = masks.contiguous()
+
+    image_height, image_width = residual_render_colors.shape[1:3]
+    tile_height, tile_width = isect_offsets.shape[1:3]
+    assert (
+            tile_height * tile_size >= image_height
+    ), f"Assert Failed: {tile_height} * {tile_size} >= {image_height}"
+    assert (
+            tile_width * tile_size >= image_width
+    ), f"Assert Failed: {tile_width} * {tile_size} >= {image_width}"
+
+    assert isect_offsets.size() == (C, tile_height, tile_width), isect_offsets.size()
+    isect_offsets = isect_offsets.contiguous()
+    flatten_ids = flatten_ids.contiguous()
+    assert render_alphas.size() == (C, image_height, image_width, 1), render_alphas.size()
+    render_alphas = render_alphas.contiguous()
+    assert last_ids.size() == (C, image_height, image_width), last_ids.size()
+    last_ids = last_ids.contiguous()
+    assert residual_render_colors.size() == (C, image_height, image_width, channels), residual_render_colors.size()
+    residual_render_colors = residual_render_colors.contiguous()
+
+    return _make_lazy_cuda_func("jacobians_bwd")(
+        means,
+        covars,
+        quats,
+        scales,
+        coeffs,
+        opacities,
+        viewmats,
+        Ks,
+        colors,
+        means2d,
+        conics,
+        backgrounds,
+        masks,
+        degrees_to_use,dirs,
+        tile_size,
+        isect_offsets,
+        flatten_ids,
+        render_alphas,
+        last_ids,
+        residual_render_colors,
+    )
+
+
 class _QuatScaleToCovarPreci(torch.autograd.Function):
     """Converts quaternions and scales to covariance and precision matrices."""
 
     @staticmethod
     def forward(
-        ctx,
-        quats: Tensor,  # [N, 4],
-        scales: Tensor,  # [N, 3],
-        compute_covar: bool = True,
-        compute_preci: bool = True,
-        triu: bool = False,
+            ctx,
+            quats: Tensor,  # [N, 4],
+            scales: Tensor,  # [N, 3],
+            compute_covar: bool = True,
+            compute_preci: bool = True,
+            triu: bool = False,
     ) -> Tuple[Tensor, Tensor]:
         covars, precis = _make_lazy_cuda_func("quat_scale_to_covar_preci_fwd")(
             quats, scales, compute_covar, compute_preci, triu
@@ -644,12 +775,12 @@ class _PerspProj(torch.autograd.Function):
 
     @staticmethod
     def forward(
-        ctx,
-        means: Tensor,  # [C, N, 3]
-        covars: Tensor,  # [C, N, 3, 3]
-        Ks: Tensor,  # [C, 3, 3]
-        width: int,
-        height: int,
+            ctx,
+            means: Tensor,  # [C, N, 3]
+            covars: Tensor,  # [C, N, 3, 3]
+            Ks: Tensor,  # [C, 3, 3]
+            width: int,
+            height: int,
     ) -> Tuple[Tensor, Tensor]:
         means2d, covars2d = _make_lazy_cuda_func("persp_proj_fwd")(
             means, covars, Ks, width, height
@@ -684,10 +815,10 @@ class _WorldToCam(torch.autograd.Function):
 
     @staticmethod
     def forward(
-        ctx,
-        means: Tensor,  # [N, 3]
-        covars: Tensor,  # [N, 3, 3]
-        viewmats: Tensor,  # [C, 4, 4]
+            ctx,
+            means: Tensor,  # [N, 3]
+            covars: Tensor,  # [N, 3, 3]
+            viewmats: Tensor,  # [C, 4, 4]
     ) -> Tuple[Tensor, Tensor]:
         means_c, covars_c = _make_lazy_cuda_func("world_to_cam_fwd")(
             means, covars, viewmats
@@ -722,20 +853,20 @@ class _FullyFusedProjection(torch.autograd.Function):
 
     @staticmethod
     def forward(
-        ctx,
-        means: Tensor,  # [N, 3]
-        covars: Tensor,  # [N, 6] or None
-        quats: Tensor,  # [N, 4] or None
-        scales: Tensor,  # [N, 3] or None
-        viewmats: Tensor,  # [C, 4, 4]
-        Ks: Tensor,  # [C, 3, 3]
-        width: int,
-        height: int,
-        eps2d: float,
-        near_plane: float,
-        far_plane: float,
-        radius_clip: float,
-        calc_compensations: bool,
+            ctx,
+            means: Tensor,  # [N, 3]
+            covars: Tensor,  # [N, 6] or None
+            quats: Tensor,  # [N, 4] or None
+            scales: Tensor,  # [N, 3] or None
+            viewmats: Tensor,  # [C, 4, 4]
+            Ks: Tensor,  # [C, 3, 3]
+            width: int,
+            height: int,
+            eps2d: float,
+            near_plane: float,
+            far_plane: float,
+            radius_clip: float,
+            calc_compensations: bool,
     ) -> Tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
         # "covars" and {"quats", "scales"} are mutually exclusive
         radii, means2d, depths, conics, compensations = _make_lazy_cuda_func(
@@ -837,19 +968,19 @@ class _RasterizeToPixels(torch.autograd.Function):
 
     @staticmethod
     def forward(
-        ctx,
-        means2d: Tensor,  # [C, N, 2]
-        conics: Tensor,  # [C, N, 3]
-        colors: Tensor,  # [C, N, D]
-        opacities: Tensor,  # [C, N]
-        backgrounds: Tensor,  # [C, D], Optional
-        masks: Tensor,  # [C, tile_height, tile_width], Optional
-        width: int,
-        height: int,
-        tile_size: int,
-        isect_offsets: Tensor,  # [C, tile_height, tile_width]
-        flatten_ids: Tensor,  # [n_isects]
-        absgrad: bool,
+            ctx,
+            means2d: Tensor,  # [C, N, 2]
+            conics: Tensor,  # [C, N, 3]
+            colors: Tensor,  # [C, N, D]
+            opacities: Tensor,  # [C, N]
+            backgrounds: Tensor,  # [C, D], Optional
+            masks: Tensor,  # [C, tile_height, tile_width], Optional
+            width: int,
+            height: int,
+            tile_size: int,
+            isect_offsets: Tensor,  # [C, tile_height, tile_width]
+            flatten_ids: Tensor,  # [n_isects]
+            absgrad: bool,
     ) -> Tuple[Tensor, Tensor]:
         render_colors, render_alphas, last_ids = _make_lazy_cuda_func(
             "rasterize_to_pixels_fwd"
@@ -886,13 +1017,14 @@ class _RasterizeToPixels(torch.autograd.Function):
 
         # double to float
         render_alphas = render_alphas.float()
-        return render_colors, render_alphas
+        return render_colors, render_alphas, last_ids
 
     @staticmethod
     def backward(
-        ctx,
-        v_render_colors: Tensor,  # [C, H, W, 3]
-        v_render_alphas: Tensor,  # [C, H, W, 1]
+            ctx,
+            v_render_colors: Tensor,  # [C, H, W, 3]
+            v_render_alphas: Tensor,  # [C, H, W, 1]
+            v_last_ids: Tensor,
     ):
         (
             means2d,
@@ -967,21 +1099,21 @@ class _FullyFusedProjectionPacked(torch.autograd.Function):
 
     @staticmethod
     def forward(
-        ctx,
-        means: Tensor,  # [N, 3]
-        covars: Tensor,  # [N, 6] or None
-        quats: Tensor,  # [N, 4] or None
-        scales: Tensor,  # [N, 3] or None
-        viewmats: Tensor,  # [C, 4, 4]
-        Ks: Tensor,  # [C, 3, 3]
-        width: int,
-        height: int,
-        eps2d: float,
-        near_plane: float,
-        far_plane: float,
-        radius_clip: float,
-        sparse_grad: bool,
-        calc_compensations: bool,
+            ctx,
+            means: Tensor,  # [N, 3]
+            covars: Tensor,  # [N, 6] or None
+            quats: Tensor,  # [N, 4] or None
+            scales: Tensor,  # [N, 3] or None
+            viewmats: Tensor,  # [C, 4, 4]
+            Ks: Tensor,  # [C, 3, 3]
+            width: int,
+            height: int,
+            eps2d: float,
+            near_plane: float,
+            far_plane: float,
+            radius_clip: float,
+            sparse_grad: bool,
+            calc_compensations: bool,
     ) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
         (
             indptr,
@@ -1030,14 +1162,14 @@ class _FullyFusedProjectionPacked(torch.autograd.Function):
 
     @staticmethod
     def backward(
-        ctx,
-        v_camera_ids,
-        v_gaussian_ids,
-        v_radii,
-        v_means2d,
-        v_depths,
-        v_conics,
-        v_compensations,
+            ctx,
+            v_camera_ids,
+            v_gaussian_ids,
+            v_radii,
+            v_means2d,
+            v_depths,
+            v_conics,
+            v_compensations,
     ):
         (
             camera_ids,
@@ -1152,7 +1284,7 @@ class _SphericalHarmonics(torch.autograd.Function):
 
     @staticmethod
     def forward(
-        ctx, sh_degree: int, dirs: Tensor, coeffs: Tensor, masks: Tensor
+            ctx, sh_degree: int, dirs: Tensor, coeffs: Tensor, masks: Tensor
     ) -> Tensor:
         colors = _make_lazy_cuda_func("compute_sh_fwd")(sh_degree, dirs, coeffs, masks)
         ctx.save_for_backward(dirs, coeffs, masks)
