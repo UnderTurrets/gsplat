@@ -614,8 +614,6 @@ def jacobians_bwd(
         colors: Tensor,  # [C, N, COLOR_DIM]
         means2d: Tensor,  # [C, N, 2]
         conics: Tensor,  # [C, N, 3]
-        backgrounds: Optional[Tensor],  # [C, COLOR_DIM]
-        masks: Optional[Tensor],  # [C, tile_height, tile_width]
         # 辅助信息
         degrees_to_use: int,
         dirs: Tensor,  # [N, 3]
@@ -625,7 +623,9 @@ def jacobians_bwd(
         render_alphas: Tensor,  # [C, image_height, image_width, 1]
         last_ids: Tensor,  # [C, image_height, image_width]
         # residual
-        residual_render_colors: Tensor  # [C, image_height, image_width, COLOR_DIM]
+        residual_render_colors: Tensor,  # [C, image_height, image_width, COLOR_DIM]
+        backgrounds: Optional[Tensor] = None,  # [C, COLOR_DIM]
+        masks:Optional[Tensor] = None,  # [C, tile_height, tile_width]
 ):
     C = isect_offsets.size(0)
     N = means.size(0)

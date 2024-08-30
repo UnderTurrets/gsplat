@@ -664,14 +664,14 @@ def rasterization_jacobian(
     # gaussian的世界坐标减去相机的世界坐标，获得gaussian的方向向量
     camtoworlds = torch.inverse(viewmats)  # [C, 4, 4]
     dirs = means[None, :, :] - camtoworlds[:, None, :3, 3]  # [C, N, 3]
-    masks = radii > 0  # [C, N]
+    masks_sh = radii > 0  # [C, N]
     if coeffs.dim() == 3:
         # Turn [N, K, 3] into [C, N, K, 3]
         shs = coeffs.expand(C, -1, -1, -1)  # [C, N, K, 3]
     else:
         # colors is already [C, N, K, 3]
         shs = coeffs
-    colors = spherical_harmonics(sh_degree, dirs, shs, masks=masks)  # [C, N, 3]
+    colors = spherical_harmonics(sh_degree, dirs, shs, masks=masks_sh)  # [C, N, 3]
     # make it apple-to-apple with Inria's CUDA Backend.
     colors = torch.clamp_min(colors + 0.5, 0.0)
 
@@ -775,7 +775,6 @@ def rasterization_jacobian(
         means2d=means2d,  # [C, N, 2]
         conics=conics,  # [C, N, 3]
         backgrounds=backgrounds,  # [C, COLOR_DIM]
-        masks=masks,  # [C, tile_height, tile_width]
         degrees_to_use=sh_degree,  # [N, 3]
         dirs=dirs,  # [C, N, 3]
         tile_size=tile_size,

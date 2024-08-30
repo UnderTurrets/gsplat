@@ -27,7 +27,7 @@ from datasets.colmap import Dataset, Parser
 from datasets.traj import generate_interpolated_path
 from utils import AppearanceOptModule, CameraOptModule, knn, rgb_to_sh, set_random_seed
 
-from gsplat.rendering import rasterization,_rasterization
+from gsplat.rendering import rasterization,_rasterization, rasterization_jacobian
 from gsplat.strategy import DefaultStrategy
 
 
@@ -402,28 +402,46 @@ class Runner:
             colors = torch.cat([self.splats["sh0"], self.splats["shN"]], 1)  # [N, K, 3]
 
         rasterize_mode = "antialiased" if self.cfg.antialiased else "classic"
-        ## CUDA complementation
-        render_colors, render_alphas, info = rasterization(
+        ## jacobian bwd
+        target_colors = kwargs.pop("target_colors", None)
+        render_mode = kwargs.pop("render_mode", str)
+        render_colors, render_alphas, info, jacobian = rasterization_jacobian(
             means=means,
             quats=quats,
             scales=scales,
             opacities=opacities,
-            colors=colors,
+            coeffs=colors,
             viewmats=torch.linalg.inv(camtoworlds),  # [C, 4, 4]
             Ks=Ks,  # [C, 3, 3]
+            target_colors= target_colors,
+            rasterize_mode=rasterize_mode,
             width=width,
             height=height,
-            packed=self.cfg.packed,
-            absgrad=(
-                self.cfg.strategy.absgrad
-                if isinstance(self.cfg.strategy, DefaultStrategy)
-                else False
-            ),
-            sparse_grad=self.cfg.sparse_grad,
-            rasterize_mode=rasterize_mode,
             distributed=self.world_size > 1,
             **kwargs,
         )
+        ## CUDA complementation
+        # render_colors, render_alphas, info = rasterization(
+        #     means=means,
+        #     quats=quats,
+        #     scales=scales,
+        #     opacities=opacities,
+        #     colors=colors,
+        #     viewmats=torch.linalg.inv(camtoworlds),  # [C, 4, 4]
+        #     Ks=Ks,  # [C, 3, 3]
+        #     width=width,
+        #     height=height,
+        #     packed=self.cfg.packed,
+        #     absgrad=(
+        #         self.cfg.strategy.absgrad
+        #         if isinstance(self.cfg.strategy, DefaultStrategy)
+        #         else False
+        #     ),
+        #     sparse_grad=self.cfg.sparse_grad,
+        #     rasterize_mode=rasterize_mode,
+        #     distributed=self.world_size > 1,
+        #     **kwargs,
+        # )
         ## torch complementation
         # render_colors, render_alphas, info = _rasterization(
         #     means=means,
@@ -536,6 +554,7 @@ class Runner:
                 far_plane=cfg.far_plane,
                 image_ids=image_ids,
                 render_mode="RGB+ED" if cfg.depth_loss else "RGB",
+                target_colors = pixels,
             )
             if renders.shape[-1] == 4:
                 colors, depths = renders[..., 0:3], renders[..., 3:4]
