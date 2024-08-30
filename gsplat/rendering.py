@@ -787,7 +787,7 @@ def rasterization_jacobian(
     coo_indices = torch.stack(
         [jacobians_camera_indices, jacobians_row_indices, jacobians_col_indices], dim=0
     )
-    jacobians = torch.sparse_coo_tensor(coo_indices, jacobians_values_indices, size=(C, width*height, parameters_per_gaussian * N))
+    jacobians = torch.sparse_coo_tensor(coo_indices, jacobians_values_indices, (C, width*height, parameters_per_gaussian * N))
     return render_colors, render_alphas, meta, jacobians
 
 def _rasterization(

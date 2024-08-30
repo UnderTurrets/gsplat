@@ -79,6 +79,6 @@ def process_images(input_folder, factor):
 
 
 if __name__ == "__main__":
-    input_folder = r"/home/cvgluser/Downloads/dataset/lego/images"
-    factor = 10
+    input_folder = rf"{os.path.dirname(__file__)}/../examples/datasets/lego/images"
+    factor = 4
     process_images(input_folder, factor)

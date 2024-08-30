@@ -366,7 +366,6 @@ __global__ void jacobians_bwd_kernel(
                 jacobian_col_indices += 3;
                 local_parameters_num += 3;
 
-
                 // 写入(v_scales, v_quats)或者(v_covars)
                 if (covars != nullptr) {
                     jacobian_values[0] = v_covar[0][0];
@@ -389,7 +388,7 @@ __global__ void jacobians_bwd_kernel(
                     quat_scale_to_covar_vjp<S>(quat, scale, rotmat, v_covar, v_quat, v_scale);
                     PRAGMA_UNROLL
                     for (uint32_t k = 0; k < 4; k++) {
-                        jacobian_camera_indices[k] = v_quat[k];
+                        jacobian_values[k] = v_quat[k];
                         jacobian_col_indices[k] =  static_cast<int32_t>(col_offsets + local_parameters_num + k);
                     }
                     jacobian_values += 4;
@@ -397,7 +396,7 @@ __global__ void jacobians_bwd_kernel(
                     local_parameters_num += 4;
                     PRAGMA_UNROLL
                     for (uint32_t k = 0; k < 3; k++) {
-                        jacobian_camera_indices[k] = v_scale[k];
+                        jacobian_values[k] = v_scale[k];
                         jacobian_col_indices[k] =  static_cast<int32_t>(col_offsets + local_parameters_num + k);
                     }
                     jacobian_values += 3;
@@ -549,6 +548,12 @@ call_kernel_with_dim(
     }else {
         nnz_jacobian = 0;
     }
+
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        printf("CUDA Error after first kernel call: %s\n", cudaGetErrorString(err));
+    }
+
     //second pass
     torch::Tensor jacobian_camera_indices = torch::empty({nnz_jacobian}, means.options().dtype(torch::kInt32));
     torch::Tensor jacobian_row_indices = torch::empty({nnz_jacobian}, means.options().dtype(torch::kInt32));
@@ -582,6 +587,11 @@ call_kernel_with_dim(
                 jacobian_camera_indices.data_ptr<int32_t>(),jacobian_row_indices.data_ptr<int32_t>(),
                 jacobian_col_indices.data_ptr<int32_t>(),jacobian_values.data_ptr<float>()
                 );
+    }
+
+    err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        printf("CUDA Error after first kernel call: %s\n", cudaGetErrorString(err));
     }
     return std::make_tuple(jacobian_camera_indices,jacobian_row_indices,jacobian_col_indices,jacobian_values);
 }

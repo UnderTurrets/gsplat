@@ -41,7 +41,7 @@ class Config:
     # Path to dataset
     data_dir: str = rf"{os.path.dirname(__file__)}/datasets/lego"
     # Downsample factor for the dataset
-    data_factor: int = 1  # 4
+    data_factor: int = 4  # 4
     # Directory to save results
     result_dir: str = rf"{os.path.dirname(__file__)}/results/lego"
     # Every N images there is a test image
@@ -377,8 +377,9 @@ class Runner:
         Ks: Tensor,
         width: int,
         height: int,
+        get_jacobian: bool = False,
         **kwargs,
-    ) -> Tuple[Tensor, Tensor, Dict]:
+    ):
         means = self.splats["means"]  # [N, 3]
         # quats = F.normalize(self.splats["quats"], dim=-1)  # [N, 4]
         # rasterization does normalization internally
@@ -402,61 +403,64 @@ class Runner:
             colors = torch.cat([self.splats["sh0"], self.splats["shN"]], 1)  # [N, K, 3]
 
         rasterize_mode = "antialiased" if self.cfg.antialiased else "classic"
-        ## jacobian bwd
-        target_colors = kwargs.pop("target_colors", None)
-        render_mode = kwargs.pop("render_mode", str)
-        render_colors, render_alphas, info, jacobian = rasterization_jacobian(
-            means=means,
-            quats=quats,
-            scales=scales,
-            opacities=opacities,
-            coeffs=colors,
-            viewmats=torch.linalg.inv(camtoworlds),  # [C, 4, 4]
-            Ks=Ks,  # [C, 3, 3]
-            target_colors= target_colors,
-            rasterize_mode=rasterize_mode,
-            width=width,
-            height=height,
-            distributed=self.world_size > 1,
-            **kwargs,
-        )
+        if get_jacobian:
+        ## jacobian
+            target_colors = kwargs.pop("target_colors", None)
+            kwargs.pop("render_mode", str)
+            render_colors, render_alphas, info, jacobian = rasterization_jacobian(
+                means=means,
+                quats=quats,
+                scales=scales,
+                opacities=opacities,
+                coeffs=colors,
+                viewmats=torch.linalg.inv(camtoworlds),  # [C, 4, 4]
+                Ks=Ks,  # [C, 3, 3]
+                target_colors= target_colors,
+                rasterize_mode=rasterize_mode,
+                width=width,
+                height=height,
+                distributed=self.world_size > 1,
+                **kwargs,
+            )
+            return render_colors, render_alphas, info, jacobian
+        else:
         ## CUDA complementation
-        # render_colors, render_alphas, info = rasterization(
-        #     means=means,
-        #     quats=quats,
-        #     scales=scales,
-        #     opacities=opacities,
-        #     colors=colors,
-        #     viewmats=torch.linalg.inv(camtoworlds),  # [C, 4, 4]
-        #     Ks=Ks,  # [C, 3, 3]
-        #     width=width,
-        #     height=height,
-        #     packed=self.cfg.packed,
-        #     absgrad=(
-        #         self.cfg.strategy.absgrad
-        #         if isinstance(self.cfg.strategy, DefaultStrategy)
-        #         else False
-        #     ),
-        #     sparse_grad=self.cfg.sparse_grad,
-        #     rasterize_mode=rasterize_mode,
-        #     distributed=self.world_size > 1,
-        #     **kwargs,
-        # )
-        ## torch complementation
-        # render_colors, render_alphas, info = _rasterization(
-        #     means=means,
-        #     quats=quats,
-        #     scales=scales,
-        #     opacities=opacities,
-        #     colors=colors,
-        #     viewmats=torch.linalg.inv(camtoworlds),  # [C, 4, 4]
-        #     Ks=Ks,  # [C, 3, 3]
-        #     width=width,
-        #     height=height,
-        #     rasterize_mode=rasterize_mode,
-        #     **kwargs,
-        # )
-        return render_colors, render_alphas, info
+            render_colors, render_alphas, info = rasterization(
+                means=means,
+                quats=quats,
+                scales=scales,
+                opacities=opacities,
+                colors=colors,
+                viewmats=torch.linalg.inv(camtoworlds),  # [C, 4, 4]
+                Ks=Ks,  # [C, 3, 3]
+                width=width,
+                height=height,
+                packed=self.cfg.packed,
+                absgrad=(
+                    self.cfg.strategy.absgrad
+                    if isinstance(self.cfg.strategy, DefaultStrategy)
+                    else False
+                ),
+                sparse_grad=self.cfg.sparse_grad,
+                rasterize_mode=rasterize_mode,
+                distributed=self.world_size > 1,
+                **kwargs,
+            )
+            ## torch complementation
+            # render_colors, render_alphas, info = _rasterization(
+            #     means=means,
+            #     quats=quats,
+            #     scales=scales,
+            #     opacities=opacities,
+            #     colors=colors,
+            #     viewmats=torch.linalg.inv(camtoworlds),  # [C, 4, 4]
+            #     Ks=Ks,  # [C, 3, 3]
+            #     width=width,
+            #     height=height,
+            #     rasterize_mode=rasterize_mode,
+            #     **kwargs,
+            # )
+            return render_colors, render_alphas, info
 
     def train(self):
         cfg = self.cfg
@@ -543,11 +547,12 @@ class Runner:
             sh_degree_to_use = min(step // cfg.sh_degree_interval, cfg.sh_degree)
 
             # forward
-            renders, alphas, info = self.rasterize_splats(
+            renders, alphas, info, jacobians = self.rasterize_splats(
                 camtoworlds=camtoworlds,
                 Ks=Ks,
                 width=width,
                 height=height,
+                get_jacobian=True,
                 # kargs
                 sh_degree=sh_degree_to_use,
                 near_plane=cfg.near_plane,
