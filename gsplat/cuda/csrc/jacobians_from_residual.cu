@@ -123,15 +123,17 @@ __global__ void jacobians_bwd_kernel(
         }
         return;
     }
-    auto offset = (pix_global_id==0) ? 0 : cum_gaussians_per_pixel[pix_global_id-1];
-    jacobian_values += offset * nnz_parameters_per_gaussian;
+    int64_t offset = (pix_global_id==0) ? 0 : cum_gaussians_per_pixel[pix_global_id-1];
     jacobian_camera_indices += offset * nnz_parameters_per_gaussian;
     jacobian_row_indices += offset * nnz_parameters_per_gaussian;
     jacobian_col_indices += offset * nnz_parameters_per_gaussian;
+    jacobian_values += offset * nnz_parameters_per_gaussian;
     for (uint32_t t= 0; t < local_gaussian_num * nnz_parameters_per_gaussian; t++) {
         jacobian_camera_indices[t] = static_cast<int32_t>(camera_id);
         jacobian_row_indices[t] = static_cast<int32_t>(pix_id);
     }
+    jacobian_camera_indices += local_gaussian_num * nnz_parameters_per_gaussian;
+    jacobian_row_indices += local_gaussian_num * nnz_parameters_per_gaussian;
 
     // this is the T AFTER the last gaussian in this pixel
     S T_final = 1.0f - render_alphas[pix_id];
@@ -491,15 +493,15 @@ call_kernel_with_dim(
     uint32_t tile_height = tile_offsets.size(1);
     uint32_t tile_width = tile_offsets.size(2);
     uint32_t K = coeffs.size(-2);
-    uint32_t image_width = residual_render_colors.size(-3);
-    uint32_t image_height = residual_render_colors.size(-2);
+    uint32_t image_height = residual_render_colors.size(1);
+    uint32_t image_width = residual_render_colors.size(2);
     uint32_t parameters_per_gaussian; uint32_t nnz_parameters_per_gaussian;
     if (covars.has_value()) {
         parameters_per_gaussian = 3 + 6 + K * 3 + 1;
-        nnz_parameters_per_gaussian = 3 + 6 + (degrees_to_use+1) *(degrees_to_use+1)*3  + 1;
+        nnz_parameters_per_gaussian = 3 + 6 + (degrees_to_use+1) * (degrees_to_use+1) * 3 + 1;
     }else {
         parameters_per_gaussian = 3 + 7 + K * 3 + 1;
-        nnz_parameters_per_gaussian = 3 + 7 + (degrees_to_use+1) *(degrees_to_use+1)*3  + 1;
+        nnz_parameters_per_gaussian = 3 + 7 + (degrees_to_use+1) * (degrees_to_use+1) * 3 + 1;
     }
 
     // Each block covers a tile on the image. In total there are
@@ -507,7 +509,7 @@ call_kernel_with_dim(
     dim3 threads = {tile_size, tile_size, 1};
     dim3 blocks = {C, tile_height, tile_width};
 
-    torch::Tensor gaussians_per_pixel = torch::zeros({C,image_width*image_height}, means.options().dtype(torch::kInt32));
+    torch::Tensor gaussians_per_pixel = torch::zeros({C, image_width*image_height}, means.options().dtype(torch::kInt32));
     torch::Tensor cum_gaussians_per_pixel; int64_t nnz_jacobian;
 
     const uint32_t shared_mem = tile_size * tile_size *
@@ -544,7 +546,7 @@ call_kernel_with_dim(
                 nullptr,nullptr,nullptr,nullptr
                 );
         cum_gaussians_per_pixel = torch::cumsum(gaussians_per_pixel.view({-1}), 0);
-        nnz_jacobian = cum_gaussians_per_pixel[-1].item<int64_t>() * nnz_parameters_per_gaussian;
+        nnz_jacobian = cum_gaussians_per_pixel[-1].item<int64_t>() * static_cast<int64_t>(nnz_parameters_per_gaussian);
     }else {
         nnz_jacobian = 0;
     }

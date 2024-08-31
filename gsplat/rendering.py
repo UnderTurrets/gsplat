@@ -775,7 +775,7 @@ def rasterization_jacobian(
         means2d=means2d,  # [C, N, 2]
         conics=conics,  # [C, N, 3]
         backgrounds=backgrounds,  # [C, COLOR_DIM]
-        degrees_to_use=sh_degree,  # [N, 3]
+        degrees_to_use=sh_degree,
         dirs=dirs,  # [C, N, 3]
         tile_size=tile_size,
         isect_offsets=isect_offsets,  # [C, tile_height, tile_width]
