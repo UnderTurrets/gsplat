@@ -232,7 +232,7 @@ compute_relocation_tensor(
 // parallelize sovle matrix equation : Ax=b
 torch::Tensor parallelize_sparse_matrix(const torch::Tensor& A, const torch::Tensor& b, const uint32_t block_size);
 
-std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>
+std::tuple<at::optional<torch::Tensor>, torch::Tensor, torch::Tensor, torch::Tensor>
 jacobians_bwd_tensor(
     // gaussian parameters
     const torch::Tensor & means,    // [N, 3]

@@ -40,7 +40,7 @@ __global__ void jacobians_bwd_kernel(
     const S *__restrict__ backgrounds,   // [C, COLOR_DIM] or [nnz, COLOR_DIM]
     const bool *__restrict__ masks,      // [C, tile_height, tile_width]
     // 辅助信息
-    const uint32_t parameters_per_gaussian, const uint32_t nnz_parameters_per_gaussian,
+    const uint32_t nnz_parameters_per_gaussian,
     uint32_t K, const uint32_t degrees_to_use, const vec3<S> *__restrict__ dirs, // [N, 3]
     const uint32_t image_width, const uint32_t image_height,
     const uint32_t tile_size, const uint32_t tile_width, const uint32_t tile_height,
@@ -124,15 +124,22 @@ __global__ void jacobians_bwd_kernel(
         return;
     }
     int64_t offset = (pix_global_id==0) ? 0 : cum_gaussians_per_pixel[pix_global_id-1];
-    jacobian_camera_indices += offset * nnz_parameters_per_gaussian;
+    if (jacobian_camera_indices != nullptr) {
+        jacobian_camera_indices += offset * nnz_parameters_per_gaussian;
+    }
     jacobian_row_indices += offset * nnz_parameters_per_gaussian;
     jacobian_col_indices += offset * nnz_parameters_per_gaussian;
     jacobian_values += offset * nnz_parameters_per_gaussian;
+
     for (uint32_t t= 0; t < local_gaussian_num * nnz_parameters_per_gaussian; t++) {
-        jacobian_camera_indices[t] = static_cast<int32_t>(camera_id);
+        if (jacobian_camera_indices!=nullptr) {
+            jacobian_camera_indices[t] = static_cast<int32_t>(camera_id);
+        }
         jacobian_row_indices[t] = static_cast<int32_t>(pix_id);
     }
-    jacobian_camera_indices += local_gaussian_num * nnz_parameters_per_gaussian;
+    if (jacobian_camera_indices!=nullptr) {
+        jacobian_camera_indices += local_gaussian_num * nnz_parameters_per_gaussian;
+    }
     jacobian_row_indices += local_gaussian_num * nnz_parameters_per_gaussian;
 
     // this is the T AFTER the last gaussian in this pixel
@@ -281,7 +288,7 @@ __global__ void jacobians_bwd_kernel(
                     buffer[k] += rgbs_batch[t * COLOR_DIM + k] * fac;
                 }
 
-                // 计算投影的反向传播
+                // 计算投影过程的反向传播
                 const int32_t global_idx = id_batch[t]; // flatten index in [C * N] or [nnz]
                 const uint32_t gaussian_id = global_idx % N;
 
@@ -356,17 +363,14 @@ __global__ void jacobians_bwd_kernel(
                 pos_world_to_cam_vjp(R, translate, glm::make_vec3(means), v_mean_c, v_R, v_t, v_mean);
                 covar_world_to_cam_vjp(R, covar, v_covar_c, v_R, v_covar);
 
-                const uint32_t col_offsets = gaussian_id * parameters_per_gaussian;
-                uint32_t local_parameters_num = 0;
                 // 写入v_means
                 PRAGMA_UNROLL
                 for (uint32_t k = 0; k < 3; k++) {
                     jacobian_values[k] = v_mean[k];
-                    jacobian_col_indices[k] = static_cast<int32_t>(col_offsets + local_parameters_num + k);
+                    jacobian_col_indices[k] = static_cast<int32_t>(N * 0 + global_idx * 3 + k);
                 }
                 jacobian_values += 3;
                 jacobian_col_indices += 3;
-                local_parameters_num += 3;
 
                 // 写入(v_scales, v_quats)或者(v_covars)
                 if (covars != nullptr) {
@@ -378,11 +382,10 @@ __global__ void jacobians_bwd_kernel(
                     jacobian_values[5] = v_covar[2][2];
                     PRAGMA_UNROLL
                     for (uint32_t k = 0; k < 6; k++) {
-                        jacobian_col_indices[k] =  static_cast<int32_t>(col_offsets + local_parameters_num + k);
+                        jacobian_col_indices[k] =  static_cast<int32_t>(N * 3 + global_idx * 6 + k);
                     }
                     jacobian_values += 6;
                     jacobian_col_indices += 6;
-                    local_parameters_num += 6;
                 } else {
                     mat3<S> rotmat = quat_to_rotmat<S>(quat);
                     vec4<S> v_quat(0.f);
@@ -391,45 +394,50 @@ __global__ void jacobians_bwd_kernel(
                     PRAGMA_UNROLL
                     for (uint32_t k = 0; k < 4; k++) {
                         jacobian_values[k] = v_quat[k];
-                        jacobian_col_indices[k] =  static_cast<int32_t>(col_offsets + local_parameters_num + k);
+                        jacobian_col_indices[k] =  static_cast<int32_t>(N * 3 + global_idx * 4 + k);
                     }
                     jacobian_values += 4;
                     jacobian_col_indices += 4;
-                    local_parameters_num += 4;
                     PRAGMA_UNROLL
                     for (uint32_t k = 0; k < 3; k++) {
                         jacobian_values[k] = v_scale[k];
-                        jacobian_col_indices[k] =  static_cast<int32_t>(col_offsets + local_parameters_num + k);
+                        jacobian_col_indices[k] =  static_cast<int32_t>(N * 7 + global_idx * 3 + k);
                     }
                     jacobian_values += 3;
                     jacobian_col_indices += 3;
-                    local_parameters_num += 3;
                 }
 
                 // 写入v_opacities
                 jacobian_values[0] = v_opacity_local;
-                jacobian_col_indices[0] = static_cast<int32_t>(col_offsets + local_parameters_num + 0);
+                if (covars != nullptr) {
+                    jacobian_col_indices[0] = static_cast<int32_t>(N * 9 + global_idx * 1 + 0);
+                }
+                else {
+                    jacobian_col_indices[0] = static_cast<int32_t>(N * 10 + global_idx * 1 + 0);
+                }
                 jacobian_values += 1;
                 jacobian_col_indices += 1;
-                local_parameters_num += 1;
 
                 // 写入v_coeffs
                 const uint32_t coeffs_num = (degrees_to_use+1)*(degrees_to_use+1)*3;
                 PRAGMA_UNROLL
                 for (uint32_t k=0; k < coeffs_num; k++) {
                     jacobian_values[k] = v_coeffs_local[k];
-                    jacobian_col_indices[k] = static_cast<int32_t>(col_offsets + local_parameters_num + k);
+                    if (covars != nullptr) {
+                        jacobian_col_indices[k] = static_cast<int32_t>(N * 10 + global_idx * coeffs_num + k);
+                    }else {
+                        jacobian_col_indices[k] = static_cast<int32_t>(N * 11 + global_idx * coeffs_num + k);
+                    }
                 }
                 jacobian_values += coeffs_num;
                 jacobian_col_indices += coeffs_num;
-                local_parameters_num += coeffs_num;
             }
         }
     }
 }
 
 template <uint32_t CDIM>
-std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>
+std::tuple<at::optional<torch::Tensor>, torch::Tensor, torch::Tensor, torch::Tensor>
 call_kernel_with_dim(
     // gaussian parameters and other parameters
     const torch::Tensor & means,    // [N, 3]
@@ -495,12 +503,10 @@ call_kernel_with_dim(
     uint32_t K = coeffs.size(-2);
     uint32_t image_height = residual_render_colors.size(1);
     uint32_t image_width = residual_render_colors.size(2);
-    uint32_t parameters_per_gaussian; uint32_t nnz_parameters_per_gaussian;
+    uint32_t nnz_parameters_per_gaussian;
     if (covars.has_value()) {
-        parameters_per_gaussian = 3 + 6 + K * 3 + 1;
         nnz_parameters_per_gaussian = 3 + 6 + (degrees_to_use+1) * (degrees_to_use+1) * 3 + 1;
     }else {
-        parameters_per_gaussian = 3 + 7 + K * 3 + 1;
         nnz_parameters_per_gaussian = 3 + 7 + (degrees_to_use+1) * (degrees_to_use+1) * 3 + 1;
     }
 
@@ -537,7 +543,7 @@ call_kernel_with_dim(
                 reinterpret_cast<vec3<float> *>(conics.data_ptr<float>()),
                 backgrounds.has_value() ? backgrounds.value().data_ptr<float>(): nullptr,
                 masks.has_value() ? masks.value().data_ptr<bool>(): nullptr,
-                parameters_per_gaussian,nnz_parameters_per_gaussian, K,degrees_to_use,
+                nnz_parameters_per_gaussian, K,degrees_to_use,
                 reinterpret_cast<vec3<float> *>(dirs.data_ptr<float>()),
                 image_width, image_height, tile_size, tile_width, tile_height,
                 tile_offsets.data_ptr<int32_t>(), flatten_ids.data_ptr<int32_t>(),
@@ -557,10 +563,15 @@ call_kernel_with_dim(
     }
 
     //second pass
-    torch::Tensor jacobian_camera_indices = torch::empty({nnz_jacobian}, means.options().dtype(torch::kInt32));
-    torch::Tensor jacobian_row_indices = torch::empty({nnz_jacobian}, means.options().dtype(torch::kInt32));
-    torch::Tensor jacobian_col_indices = torch::empty({nnz_jacobian}, means.options().dtype(torch::kInt32));
-    torch::Tensor jacobian_values = torch::empty({nnz_jacobian}, means.options());
+    at::optional<torch::Tensor> jacobian_camera_indices;
+    if (C != 1) {
+        jacobian_camera_indices = torch::zeros({nnz_jacobian}, means.options().dtype(torch::kInt32));
+    }else {
+        jacobian_camera_indices = std::nullopt;
+    }
+    torch::Tensor jacobian_row_indices = torch::zeros({nnz_jacobian}, means.options().dtype(torch::kInt32));
+    torch::Tensor jacobian_col_indices = torch::zeros({nnz_jacobian}, means.options().dtype(torch::kInt32));
+    torch::Tensor jacobian_values = torch::zeros({nnz_jacobian}, means.options());
     if (nnz_jacobian) {
         if (cudaFuncSetAttribute(jacobians_bwd_kernel<CDIM, float>,
                                  cudaFuncAttributeMaxDynamicSharedMemorySize,
@@ -580,13 +591,14 @@ call_kernel_with_dim(
                 reinterpret_cast<vec3<float> *>(conics.data_ptr<float>()),
                 backgrounds.has_value() ? backgrounds.value().data_ptr<float>(): nullptr,
                 masks.has_value() ? masks.value().data_ptr<bool>(): nullptr,
-                parameters_per_gaussian,nnz_parameters_per_gaussian, K,degrees_to_use,
+                nnz_parameters_per_gaussian, K,degrees_to_use,
                 reinterpret_cast<vec3<float> *>(dirs.data_ptr<float>()),
                 image_width, image_height, tile_size, tile_width, tile_height,
                 tile_offsets.data_ptr<int32_t>(), flatten_ids.data_ptr<int32_t>(),
                 render_alphas.data_ptr<float>(), last_ids.data_ptr<int32_t>(),
                 residual_render_colors.data_ptr<float>(), cum_gaussians_per_pixel.data_ptr<int64_t>(), nullptr,
-                jacobian_camera_indices.data_ptr<int32_t>(),jacobian_row_indices.data_ptr<int32_t>(),
+                jacobian_camera_indices.has_value() ? jacobian_camera_indices.value().data_ptr<int32_t>() : nullptr,
+                jacobian_row_indices.data_ptr<int32_t>(),
                 jacobian_col_indices.data_ptr<int32_t>(),jacobian_values.data_ptr<float>()
                 );
     }
@@ -595,10 +607,20 @@ call_kernel_with_dim(
     if (err != cudaSuccess) {
         printf("CUDA Error after first kernel call: %s\n", cudaGetErrorString(err));
     }
+
+    // 创建一个布尔掩码，标识非零元素的位置
+    auto non_zero_mask = jacobian_values != 0;
+    // 使用布尔掩码来过滤每个张量
+    if (jacobian_camera_indices.has_value()) {
+        jacobian_camera_indices = jacobian_camera_indices.value().index({non_zero_mask});
+    }
+    jacobian_row_indices = jacobian_row_indices.index({non_zero_mask});
+    jacobian_col_indices = jacobian_col_indices.index({non_zero_mask});
+    jacobian_values = jacobian_values.index({non_zero_mask});
     return std::make_tuple(jacobian_camera_indices,jacobian_row_indices,jacobian_col_indices,jacobian_values);
 }
 
-std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>
+std::tuple<at::optional<torch::Tensor>, torch::Tensor, torch::Tensor, torch::Tensor>
 jacobians_bwd_tensor(
     // gaussian parameters and other parameters
     const torch::Tensor & means,    // [N, 3]

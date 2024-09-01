@@ -566,7 +566,6 @@ def rasterization_jacobian(
     viewmats: Tensor,  # [C, 4, 4]
     Ks: Tensor,  # [C, 3, 3]
     target_colors: Tensor,   # [C, H, W, 3]
-
     width: int,
     height: int,
     near_plane: float = 0.01,
@@ -784,11 +783,13 @@ def rasterization_jacobian(
         last_ids=last_ids,  # [C, image_height, image_width]
         residual_render_colors=residual_render_colors,  # [C, image_height, image_width, COLOR_DIM]
     )
+    if (C != 1):
+        raise NotImplementedError("Only support single camera rendering.")
     coo_indices = torch.stack(
-        [jacobians_camera_indices, jacobians_row_indices, jacobians_col_indices], dim=0
+        [jacobians_row_indices, jacobians_col_indices], dim=0
     )
-    jacobians = torch.sparse_coo_tensor(coo_indices, jacobians_values_indices, (C, width*height, parameters_per_gaussian * N))
-    return render_colors, render_alphas, meta, jacobians
+    jacobian = torch.sparse_coo_tensor(coo_indices, jacobians_values_indices, (width * height, parameters_per_gaussian * N))
+    return render_colors, render_alphas, meta, jacobian
 
 def _rasterization(
     means: Tensor,  # [N, 3]

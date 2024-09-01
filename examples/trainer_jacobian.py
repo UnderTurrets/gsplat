@@ -557,7 +557,7 @@ class Runner:
             sh_degree_to_use = min(step // cfg.sh_degree_interval, cfg.sh_degree)
 
             # forward
-            renders, alphas, info, jacobians = self.rasterize_splats(
+            renders, alphas, info, jacobian = self.rasterize_splats(
                 camtoworlds=camtoworlds,
                 Ks=Ks,
                 width=width,
@@ -571,7 +571,6 @@ class Runner:
                 render_mode="RGB+ED" if cfg.depth_loss else "RGB",
                 target_colors = pixels,
             )
-            jacobians = torch.unbind(jacobians, dim=0)
             if renders.shape[-1] == 4:
                 colors, depths = renders[..., 0:3], renders[..., 3:4]
             else:
@@ -589,7 +588,7 @@ class Runner:
                 info=info,
             )
 
-            residual = (colors - pixels).sum(dim=-1, keepdim=True)
+            residual = 0.5 * ((colors - pixels)**2).sum(dim=-1, keepdim=True)
             residual = residual.flatten()
 
             # loss
@@ -677,7 +676,7 @@ class Runner:
                 assert_never(self.cfg.strategy)
 
             # optimize
-            LMoptimizer.step(Jacobians=jacobians,residual=residual)
+            LMoptimizer.step(Jacobians=[jacobian], residual=residual)
             for optimizer in self.pose_optimizers:
                 optimizer.step()
                 optimizer.zero_grad(set_to_none=True)
