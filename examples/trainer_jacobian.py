@@ -181,7 +181,7 @@ def create_splats_with_optimizers(
     dist2_avg = (knn(points, 4)[:, 1:] ** 2).mean(dim=-1)  # [N,]
     dist_avg = torch.sqrt(dist2_avg)
     # 基于近邻距离取对数值初始化，并复制成3个相同的值，后续再exp运算，但优化时是根据对数空间的参数进行优化
-    scales = torch.log(dist_avg * init_scale).unsqueeze(-1).repeat(1, 3)  # [N, 3]
+    scales = (dist_avg * init_scale).unsqueeze(-1).repeat(1, 3)  # [N, 3]
 
     # Distribute the GSs to different ranks (also works for single rank)
     points = points[world_rank::world_size]
@@ -193,7 +193,7 @@ def create_splats_with_optimizers(
     quats = torch.rand((N, 4))  # [N, 4]
 
     # 用logit函数初始化不透明度，后续再sigmoid运算，但优化时是根据对数空间的参数进行优化
-    opacities = torch.logit(torch.full((N,), init_opacity))  # [N,]
+    opacities = torch.full((N,), init_opacity)  # [N,]
 
     params = [
         # name, value, lr
@@ -379,13 +379,13 @@ class Runner:
         height: int,
         get_jacobian: bool = False,
         **kwargs,
-    ):
+    )-> Tuple[Tensor, Tensor, Dict,Optional[Tensor]]:
         means = self.splats["means"]  # [N, 3]
         # quats = F.normalize(self.splats["quats"], dim=-1)  # [N, 4]
         # rasterization does normalization internally
         quats = self.splats["quats"]  # [N, 4]
-        scales = torch.exp(self.splats["scales"])  # [N, 3]
-        opacities = torch.sigmoid(self.splats["opacities"])  # [N,]
+        scales = self.splats["scales"]  # [N, 3]
+        opacities = self.splats["opacities"]  # [N,]
 
         image_ids = kwargs.pop("image_ids", None)
         target_colors = kwargs.pop("target_colors", Tensor)
@@ -460,7 +460,7 @@ class Runner:
             #     rasterize_mode=rasterize_mode,
             #     **kwargs,
             # )
-            return render_colors, render_alphas, info
+            return render_colors, render_alphas, info, None
 
     def train(self):
         cfg = self.cfg
@@ -591,6 +591,15 @@ class Runner:
             residual = 0.5 * ((colors - pixels)**2).sum(dim=-1, keepdim=True)
             residual = residual.flatten()
 
+            ## ========================compare autograd and jacobian===================
+            row_indices = jacobian.indices()[0,:].unique()
+            for i in row_indices:
+                i = i.item()
+                residual[i].backward(retain_graph=True)
+                for optimizer in self.optimizers.values():
+                    optimizer.zero_grad(set_to_none=True)
+            ## ========================compare autograd and jacobian===================
+
             # loss
             l1loss = F.l1_loss(colors, pixels)
             ssimloss = 1.0 - self.ssim(
@@ -598,6 +607,25 @@ class Runner:
                 pixels.permute(0, 3, 1, 2), colors.permute(0, 3, 1, 2)
             )
             loss = l1loss * (1.0 - cfg.ssim_lambda) + ssimloss * cfg.ssim_lambda
+            if cfg.depth_loss:
+                # query depths from depth map
+                points = torch.stack(
+                    [
+                        points[:, :, 0] / (width - 1) * 2 - 1,
+                        points[:, :, 1] / (height - 1) * 2 - 1,
+                    ],
+                    dim=-1,
+                )  # normalize to [-1, 1]
+                grid = points.unsqueeze(2)  # [1, M, 1, 2]
+                depths = F.grid_sample(
+                    depths.permute(0, 3, 1, 2), grid, align_corners=True
+                )  # [1, 1, M, 1]
+                depths = depths.squeeze(3).squeeze(1)  # [1, M]
+                # calculate loss in disparity space
+                disp = torch.where(depths > 0.0, 1.0 / depths, torch.zeros_like(depths))
+                disp_gt = 1.0 / depths_gt  # [1, M]
+                depthloss = F.l1_loss(disp, disp_gt) * self.scene_scale
+                loss += depthloss * cfg.depth_lambda
             loss.backward()
 
             desc = f"loss={loss.item():.3f}| " f"sh degree={sh_degree_to_use}| "
@@ -725,7 +753,7 @@ class Runner:
 
             torch.cuda.synchronize()
             tic = time.time()
-            colors, _, _ = self.rasterize_splats(
+            colors, _, _, _ = self.rasterize_splats(
                 camtoworlds=camtoworlds,
                 Ks=Ks,
                 width=width,
@@ -801,7 +829,7 @@ class Runner:
 
         canvas_all = []
         for i in tqdm.trange(len(camtoworlds), desc="Rendering trajectory"):
-            renders, _, _ = self.rasterize_splats(
+            renders, _, _, _ = self.rasterize_splats(
                 camtoworlds=camtoworlds[i : i + 1],
                 Ks=K[None],
                 width=width,
@@ -842,7 +870,7 @@ class Runner:
         c2w = torch.from_numpy(c2w).float().to(self.device)
         K = torch.from_numpy(K).float().to(self.device)
 
-        render_colors, _, _ = self.rasterize_splats(
+        render_colors, _, _, _ = self.rasterize_splats(
             camtoworlds=c2w[None],
             Ks=K[None],
             width=W,

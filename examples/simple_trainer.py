@@ -377,9 +377,8 @@ class Runner:
         Ks: Tensor,
         width: int,
         height: int,
-        get_jacobian: bool = False,
         **kwargs,
-    ):
+    ) -> Tuple[Tensor, Tensor, Dict]:
         means = self.splats["means"]  # [N, 3]
         # quats = F.normalize(self.splats["quats"], dim=-1)  # [N, 4]
         # rasterization does normalization internally
@@ -388,7 +387,6 @@ class Runner:
         opacities = torch.sigmoid(self.splats["opacities"])  # [N,]
 
         image_ids = kwargs.pop("image_ids", None)
-        target_colors = kwargs.pop("target_colors", Tensor)
         if self.cfg.app_opt:
             colors = self.app_module(
                 features=self.splats["features"],
@@ -404,63 +402,28 @@ class Runner:
             colors = torch.cat([self.splats["sh0"], self.splats["shN"]], 1)  # [N, K, 3]
 
         rasterize_mode = "antialiased" if self.cfg.antialiased else "classic"
-        if get_jacobian:
-            ## jacobian
-            kwargs.pop("render_mode", str)
-            render_colors, render_alphas, info, jacobian = rasterization_jacobian(
-                means=means,
-                quats=quats,
-                scales=scales,
-                opacities=opacities,
-                coeffs=colors,
-                viewmats=torch.linalg.inv(camtoworlds),  # [C, 4, 4]
-                Ks=Ks,  # [C, 3, 3]
-                target_colors=target_colors,
-                rasterize_mode=rasterize_mode,
-                width=width,
-                height=height,
-                distributed=self.world_size > 1,
-                **kwargs,
-            )
-            return render_colors, render_alphas, info, jacobian
-        else:
-            ## CUDA complementation
-            render_colors, render_alphas, info = rasterization(
-                means=means,
-                quats=quats,
-                scales=scales,
-                opacities=opacities,
-                colors=colors,
-                viewmats=torch.linalg.inv(camtoworlds),  # [C, 4, 4]
-                Ks=Ks,  # [C, 3, 3]
-                width=width,
-                height=height,
-                packed=self.cfg.packed,
-                absgrad=(
-                    self.cfg.strategy.absgrad
-                    if isinstance(self.cfg.strategy, DefaultStrategy)
-                    else False
-                ),
-                sparse_grad=self.cfg.sparse_grad,
-                rasterize_mode=rasterize_mode,
-                distributed=self.world_size > 1,
-                **kwargs,
-            )
-            ## torch complementation
-            # render_colors, render_alphas, info = _rasterization(
-            #     means=means,
-            #     quats=quats,
-            #     scales=scales,
-            #     opacities=opacities,
-            #     colors=colors,
-            #     viewmats=torch.linalg.inv(camtoworlds),  # [C, 4, 4]
-            #     Ks=Ks,  # [C, 3, 3]
-            #     width=width,
-            #     height=height,
-            #     rasterize_mode=rasterize_mode,
-            #     **kwargs,
-            # )
-            return render_colors, render_alphas, info
+        render_colors, render_alphas, info = rasterization(
+            means=means,
+            quats=quats,
+            scales=scales,
+            opacities=opacities,
+            colors=colors,
+            viewmats=torch.linalg.inv(camtoworlds),  # [C, 4, 4]
+            Ks=Ks,  # [C, 3, 3]
+            width=width,
+            height=height,
+            packed=self.cfg.packed,
+            absgrad=(
+                self.cfg.strategy.absgrad
+                if isinstance(self.cfg.strategy, DefaultStrategy)
+                else False
+            ),
+            sparse_grad=self.cfg.sparse_grad,
+            rasterize_mode=rasterize_mode,
+            distributed=self.world_size > 1,
+            **kwargs,
+        )
+        return render_colors, render_alphas, info
 
     def train(self):
         cfg = self.cfg
@@ -539,19 +502,17 @@ class Runner:
             sh_degree_to_use = min(step // cfg.sh_degree_interval, cfg.sh_degree)
 
             # forward
-            renders, alphas, info, jacobians = self.rasterize_splats(
+            renders, alphas, info = self.rasterize_splats(
                 camtoworlds=camtoworlds,
                 Ks=Ks,
                 width=width,
                 height=height,
-                get_jacobian=True,
                 # kargs
                 sh_degree=sh_degree_to_use,
                 near_plane=cfg.near_plane,
                 far_plane=cfg.far_plane,
                 image_ids=image_ids,
                 render_mode="RGB+ED" if cfg.depth_loss else "RGB",
-                target_colors = pixels,
             )
             if renders.shape[-1] == 4:
                 colors, depths = renders[..., 0:3], renders[..., 3:4]
@@ -596,7 +557,6 @@ class Runner:
                 disp_gt = 1.0 / depths_gt  # [1, M]
                 depthloss = F.l1_loss(disp, disp_gt) * self.scene_scale
                 loss += depthloss * cfg.depth_lambda
-
             loss.backward()
 
             desc = f"loss={loss.item():.3f}| " f"sh degree={sh_degree_to_use}| "
@@ -607,6 +567,15 @@ class Runner:
                 pose_err = F.l1_loss(camtoworlds_gt, camtoworlds)
                 desc += f"pose err={pose_err.item():.6f}| "
             pbar.set_description(desc)
+
+            # write images (gt and render)
+            # if world_rank == 0 and step % 800 == 0:
+            #     canvas = torch.cat([pixels, colors], dim=2).detach().cpu().numpy()
+            #     canvas = canvas.reshape(-1, *canvas.shape[2:])
+            #     imageio.imwrite(
+            #         f"{self.render_dir}/train_rank{self.world_rank}.png",
+            #         (canvas * 255).astype(np.uint8),
+            #     )
 
             if world_rank == 0 and cfg.tb_every > 0 and step % cfg.tb_every == 0:
                 mem = torch.cuda.max_memory_allocated() / 1024**3

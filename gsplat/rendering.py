@@ -761,7 +761,7 @@ def rasterization_jacobian(
             absgrad=False,
         )
     residual_render_colors = render_colors[..., :3] - target_colors
-    jacobians_camera_indices, jacobians_row_indices, jacobians_col_indices, jacobians_values_indices = jacobians_bwd(
+    jacobian_camera_indices, jacobian_row_indices, jacobian_col_indices, jacobian_values = jacobians_bwd(
         means=means,
         covars=None,
         quats=quats,
@@ -785,10 +785,36 @@ def rasterization_jacobian(
     )
     if (C != 1):
         raise NotImplementedError("Only support single camera rendering.")
-    coo_indices = torch.stack(
-        [jacobians_row_indices, jacobians_col_indices], dim=0
-    )
-    jacobian = torch.sparse_coo_tensor(coo_indices, jacobians_values_indices, (width * height, parameters_per_gaussian * N))
+
+    ## =====================================draw the distribution==================
+    # abs_values = jacobian_values.abs()
+    # # 使用 log10 计算每个值的数量级
+    # log_values = torch.log10(abs_values)
+    # # 使用 floor 计算每个值的下边界
+    # floor_values = torch.floor(log_values)
+    # # 统计每个数量级的频率
+    # # 将数量级转换为整数索引
+    # min_floor_value = int(floor_values.min().item())
+    # bins = (floor_values - min_floor_value).to(torch.int64)
+    # counts = torch.bincount(bins)
+    # # 转换为 numpy 进行处理
+    # import numpy
+    # import matplotlib.pyplot as plt
+    # bin_edges = numpy.arange(min_floor_value, min_floor_value + len(counts) + 1)
+    # counts = counts.cpu().numpy()
+    # # 绘制直方图
+    # plt.figure(figsize=(10, 6))
+    # plt.hist(bin_edges[:-1], bins=bin_edges, weights=counts, edgecolor='black', log=True)
+    # plt.xlabel('Log10 Scale (x)')
+    # plt.ylabel('Frequency')
+    # plt.title('Distribution of Jacobian Values by Order of Magnitude')
+    # plt.xticks(bin_edges)
+    # plt.show()
+    ## =====================================draw the distribution==================
+
+    coo_indices = torch.stack([jacobian_row_indices, jacobian_col_indices], dim=0)
+    jacobian = torch.sparse_coo_tensor(coo_indices, jacobian_values, (width * height, parameters_per_gaussian * N))
+    jacobian = jacobian.coalesce()
     return render_colors, render_alphas, meta, jacobian
 
 def _rasterization(
