@@ -139,7 +139,7 @@ class LevenbergMarquardt(Optimizer):
         col_range (tuple): 要切片的列范围，格式为 (col_start, col_end)。
 
         返回:
-        torch.Tensor: 切片后的稀疏张量
+        torch.Tensor: 切片后的dense张量
         """
         assert A.layout == torch.sparse_coo,A.layout
         # 提取 COO 张量的 indices 和 values

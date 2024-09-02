@@ -398,6 +398,7 @@ class Runner:
             )
             colors = colors + self.splats["colors"]
             colors = torch.sigmoid(colors)
+            raise NotImplemented
 
         # 把球谐函数的参数叠起来
         else:
@@ -593,9 +594,21 @@ class Runner:
 
             ## ========================compare autograd and jacobian===================
             row_indices = jacobian.indices()[0,:].unique()
+            distance = 0
             for i in row_indices:
                 i = i.item()
                 residual[i].backward(retain_graph=True)
+                whole_grad = torch.cat([self.splats['means'].grad.flatten(),
+                                        self.splats['scales'].grad.flatten(),
+                                        self.splats['quats'].grad.flatten(),
+                                        self.splats['opacities'].grad.flatten(),
+                                        self.splats['sh0'].grad.flatten(),
+                                        self.splats['shN'].grad.flatten(),])
+                jacobian_row = LMoptimizer.sparse_coo_slice(jacobian,(i,i+1),
+                                                            (0,jacobian.size(1))).flatten()
+                assert whole_grad.size() == jacobian_row.size()
+                distance += torch.linalg.vector_norm(whole_grad - jacobian_row)
+                print(distance)
                 for optimizer in self.optimizers.values():
                     optimizer.zero_grad(set_to_none=True)
             ## ========================compare autograd and jacobian===================

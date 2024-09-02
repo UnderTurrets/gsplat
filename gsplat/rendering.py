@@ -584,6 +584,8 @@ def rasterization_jacobian(
     K = coeffs.size(-2)
     N = means.shape[0]
     C = viewmats.shape[0]
+    if (C != 1):
+        raise NotImplementedError("Only support single camera rendering.")
     parameters_per_gaussian = 3 + 4 + 3 + 1 + K * 3
     device = means.device
     assert means.shape == (N, 3), means.shape
@@ -783,8 +785,6 @@ def rasterization_jacobian(
         last_ids=last_ids,  # [C, image_height, image_width]
         residual_render_colors=residual_render_colors,  # [C, image_height, image_width, COLOR_DIM]
     )
-    if (C != 1):
-        raise NotImplementedError("Only support single camera rendering.")
 
     ## =====================================draw the distribution==================
     # abs_values = jacobian_values.abs()
@@ -811,10 +811,16 @@ def rasterization_jacobian(
     # plt.xticks(bin_edges)
     # plt.show()
     ## =====================================draw the distribution==================
+    threshold = 1e-2
+    mask = jacobian_values >= threshold
+    jacobian_values = jacobian_values[mask]
+    jacobian_row_indices = jacobian_row_indices[mask]
+    jacobian_col_indices = jacobian_col_indices[mask]
 
     coo_indices = torch.stack([jacobian_row_indices, jacobian_col_indices], dim=0)
     jacobian = torch.sparse_coo_tensor(coo_indices, jacobian_values, (width * height, parameters_per_gaussian * N))
     jacobian = jacobian.coalesce()
+
     return render_colors, render_alphas, meta, jacobian
 
 def _rasterization(
