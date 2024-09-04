@@ -251,9 +251,8 @@ class LevenbergMarquardt(Optimizer):
             update = self.compute_update(group['block_size'], A, gradient)
             self.store_params(group)
             params_length = torch.linalg.vector_norm(state['params_vector']).item()
-            if torch.linalg.vector_norm(update) < epsilon * (params_length + epsilon):
-                state['found'] = True
-                continue
+            # if torch.linalg.vector_norm(update) < epsilon * (params_length + epsilon):
+            #     state['found'] = True
 
             self.update(group, update)
             with torch.no_grad():
@@ -264,6 +263,14 @@ class LevenbergMarquardt(Optimizer):
             new_loss = torch.linalg.vector_norm(residual).item()
             new_gradient = jacobian.t() @ residual
 
+            ## other check
+            # if torch.linalg.vector_norm(gradient) < group['tolOpt']:
+            #     state['found'] = True
+            # if torch.linalg.vector_norm(update) < group['tolX'] * max(1.0, params_length):
+            #     state['found'] = True
+            # if abs(new_loss - last_loss) < group['tolFun'] * max(1.0, abs(last_loss)):
+            #     state['found'] = True
+
             varrho = None
             if group['strategy'] == '0':
                 varrho = ((last_loss - new_loss) /
@@ -273,21 +280,9 @@ class LevenbergMarquardt(Optimizer):
                 varrho = ((new_loss - last_loss) / (update @ new_gradient)
                           ).item()
 
-            ## other check
-            if torch.linalg.vector_norm(gradient) < group['tolOpt']:
-                state['found'] = True
-                continue
-            if torch.linalg.vector_norm(update) < group['tolX'] * max(1.0, params_length):
-                state['found'] = True
-                continue
-            if abs(new_loss - last_loss) < group['tolFun'] * max(1.0, abs(last_loss)):
-                state['found'] = True
-                continue
-
             if varrho > 0:
                 if torch.linalg.vector_norm(new_gradient, ord=numpy.inf) <= epsilon:
                     state['found'] = True
-                    continue
                 state['miu'] *= max(1 / 3, 1 - (2 * varrho - 1) ** 3)
                 state['nu'] = 2
                 state['loss'] = new_loss
@@ -305,15 +300,16 @@ class LevenbergMarquardt(Optimizer):
         for group, jacobian in zip(self.param_groups, Jacobians):
             self.check_J_r(jacobian, residual)
             state = self.state[group['params'][0]]
-            epsilon = group['epsilon']
-            new_gradient = jacobian.t() @ residual
-            if torch.linalg.vector_norm(new_gradient, ord=numpy.inf) <= epsilon:
-                state['found'] = True
             if 'found' in state:
                 if state['found']:
                     if 'gradient' in state: del state['gradient']
                     if 'last_update' in state is not None: del state['last_update']
                     continue
+
+            epsilon = group['epsilon']
+            new_gradient = jacobian.t() @ residual
+            # if torch.linalg.vector_norm(new_gradient, ord=numpy.inf) <= epsilon:
+            #     state['found'] = True
 
             hessian = jacobian.t() @ jacobian
             # first pass
@@ -336,6 +332,14 @@ class LevenbergMarquardt(Optimizer):
                 new_loss = torch.linalg.vector_norm(residual).item()
                 params_length = torch.linalg.vector_norm(state['params_vector']).item()
 
+                ## other check
+                # if torch.linalg.vector_norm(last_gradient) < group['tolOpt']:
+                #     state['found'] = True
+                # if torch.linalg.vector_norm(last_update) < group['tolX'] * max(1.0, params_length):
+                #     state['found'] = True
+                # if abs(new_loss - last_loss) < group['tolFun'] * max(1.0, abs(last_loss)):
+                #     state['found'] = True
+
                 varrho = None
                 if group['strategy'] == '0':
                     varrho = ((last_loss - new_loss) /
@@ -344,17 +348,6 @@ class LevenbergMarquardt(Optimizer):
                 elif group['strategy'] == '1':
                     varrho = ((new_loss - last_loss) / (last_update @ new_gradient)
                               ).item()
-
-                ## other check
-                if torch.linalg.vector_norm(last_gradient) < group['tolOpt']:
-                    state['found'] = True
-                    continue
-                if torch.linalg.vector_norm(last_update) < group['tolX'] * max(1.0, params_length):
-                    state['found'] = True
-                    continue
-                if abs(new_loss - last_loss) < group['tolFun'] * max(1.0, abs(last_loss)):
-                    state['found'] = True
-                    continue
 
                 # judge last update
                 if varrho <= 0:  # reject
@@ -376,7 +369,6 @@ class LevenbergMarquardt(Optimizer):
             params_length = torch.linalg.vector_norm(state['params_vector']).item()
             if torch.linalg.vector_norm(update) < epsilon * (params_length + epsilon):
                 state['found'] = True
-                continue
             self.update(group, update)
             state['gradient'] = new_gradient
             state['last_update'] = update

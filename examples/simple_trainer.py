@@ -39,11 +39,11 @@ class Config:
     ckpt: Optional[str] = None
 
     # Path to dataset
-    data_dir: str = rf"{os.path.dirname(__file__)}/datasets/lego_2"
+    data_dir: str = rf"{os.path.dirname(__file__)}/datasets/lego_1"
     # Downsample factor for the dataset
     data_factor: int = 1  # 4
     # Directory to save results
-    result_dir: str = rf"{os.path.dirname(__file__)}/results/lego_2"
+    result_dir: str = rf"{os.path.dirname(__file__)}/results/lego_1"
     # Every N images there is a test image
     test_every: int = 8
     # Random crop size for training  (experimental)

@@ -811,7 +811,7 @@ def rasterization_jacobian(
     # plt.xticks(bin_edges)
     # plt.show()
     ## =====================================draw the distribution==================
-    threshold = 1e-2
+    threshold = 8e-3
     mask = jacobian_values >= threshold
     jacobian_values = jacobian_values[mask]
     jacobian_row_indices = jacobian_row_indices[mask]

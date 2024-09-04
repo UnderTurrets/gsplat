@@ -425,7 +425,6 @@ class Runner:
             )
             return render_colors, render_alphas, info, jacobian
         else:
-            ## CUDA complementation
             render_colors, render_alphas, info = rasterization(
                 means=means,
                 quats=quats,
@@ -477,12 +476,7 @@ class Runner:
         max_steps = cfg.max_steps
         init_step = 0
 
-        schedulers = [
-            # means has a learning rate schedule, that end at 0.01 of the initial value
-            torch.optim.lr_scheduler.ExponentialLR(
-                self.optimizers["means"], gamma=0.01 ** (1.0 / max_steps)
-            ),
-        ]
+        schedulers = []
         if cfg.pose_opt:
             # pose optimization has a learning rate schedule
             schedulers.append(
@@ -593,33 +587,28 @@ class Runner:
             residual = residual.flatten()
 
             ## ========================compare autograd and jacobian===================
-            row_indices = jacobian.indices()[0,:].unique()
-            distance = 0
-            for i in row_indices:
-                i = i.item()
-                residual[i].backward(retain_graph=True)
-                whole_grad = torch.cat([self.splats['means'].grad.flatten(),
-                                        self.splats['scales'].grad.flatten(),
-                                        self.splats['quats'].grad.flatten(),
-                                        self.splats['opacities'].grad.flatten(),
-                                        self.splats['sh0'].grad.flatten(),
-                                        self.splats['shN'].grad.flatten(),])
-                jacobian_row = LMoptimizer.sparse_coo_slice(jacobian,(i,i+1),
-                                                            (0,jacobian.size(1))).flatten()
-                assert whole_grad.size() == jacobian_row.size()
-                distance += torch.linalg.vector_norm(whole_grad - jacobian_row)
-                print(distance)
-                for optimizer in self.optimizers.values():
-                    optimizer.zero_grad(set_to_none=True)
+            # row_indices = jacobian.indices()[0,:].unique()
+            # distance = 0
+            # for i in row_indices:
+            #     i = i.item()
+            #     residual[i].backward(retain_graph=True)
+            #     whole_grad = torch.cat([self.splats['means'].grad.flatten(),
+            #                             self.splats['scales'].grad.flatten(),
+            #                             self.splats['quats'].grad.flatten(),
+            #                             self.splats['opacities'].grad.flatten(),
+            #                             self.splats['sh0'].grad.flatten(),
+            #                             self.splats['shN'].grad.flatten(),])
+            #     jacobian_row = LMoptimizer.sparse_coo_slice(jacobian,(i,i+1),
+            #                                                 (0,jacobian.size(1))).flatten()
+            #     assert whole_grad.size() == jacobian_row.size()
+            #     distance += torch.linalg.vector_norm(whole_grad - jacobian_row)
+            #     print(distance)
+            #     for optimizer in self.optimizers.values():
+            #         optimizer.zero_grad(set_to_none=True)
             ## ========================compare autograd and jacobian===================
 
             # loss
-            l1loss = F.l1_loss(colors, pixels)
-            ssimloss = 1.0 - self.ssim(
-                # (1,H,W,Channel)->(1,Channel,H,W)
-                pixels.permute(0, 3, 1, 2), colors.permute(0, 3, 1, 2)
-            )
-            loss = l1loss * (1.0 - cfg.ssim_lambda) + ssimloss * cfg.ssim_lambda
+            loss = torch.linalg.vector_norm(residual)
             if cfg.depth_loss:
                 # query depths from depth map
                 points = torch.stack(
