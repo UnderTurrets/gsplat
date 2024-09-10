@@ -24,7 +24,7 @@
 //    cudaFree(d_work);
 //}
 
-torch::Tensor sparse_coo_slice_to_dense(const torch::Tensor& coo_tensor,
+torch::Tensor sparse_coo_slice(const torch::Tensor& coo_tensor,
                                         const std::pair<int64_t, int64_t> row_range,
                                         const std::pair<int64_t, int64_t> col_range) {
     // 提取COO张量的indices和values
@@ -56,7 +56,7 @@ torch::Tensor sparse_coo_slice_to_dense(const torch::Tensor& coo_tensor,
     // 创建新的COO稀疏张量
     auto sliced_tensor = torch::sparse_coo_tensor(new_indices, new_values, new_shape, coo_tensor.options());
 
-    return sliced_tensor.to_dense();
+    return sliced_tensor;
 }
 
 torch::Tensor
@@ -82,7 +82,9 @@ parallelize_sparse_matrix(const torch::Tensor& A, const torch::Tensor& b, const 
         }
         torch::Tensor A_sub;
         if (A.layout() == torch::kSparse) {
-            A_sub = sparse_coo_slice_to_dense(A, {current_idx, end_idx}, {current_idx, end_idx});
+            A_sub = sparse_coo_slice(A,
+                {current_idx, end_idx},
+                {current_idx, end_idx}).to_dense();
         }else if (A.layout() == torch::kStrided) {
             A_sub = A.index({
                 torch::indexing::Slice(current_idx, end_idx),
@@ -90,7 +92,7 @@ parallelize_sparse_matrix(const torch::Tensor& A, const torch::Tensor& b, const 
         }
         torch::Tensor b_sub = b.index({torch::indexing::Slice(current_idx,end_idx)});
 
-        // method1: use torch
+        // method1: use torch.linalg
         torch::Tensor solve_sub = torch::linalg::solve(A_sub, b_sub,true);
 
         // method2: use cusolver

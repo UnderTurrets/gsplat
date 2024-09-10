@@ -811,12 +811,17 @@ def rasterization_jacobian(
     # plt.xticks(bin_edges)
     # plt.show()
     ## =====================================draw the distribution==================
-    threshold = 8e-3
-    mask = jacobian_values >= threshold
-    jacobian_values = jacobian_values[mask]
-    jacobian_row_indices = jacobian_row_indices[mask]
-    jacobian_col_indices = jacobian_col_indices[mask]
 
+    ## =====================================set the threshold======================
+    # threshold = 8e-3
+    # mask = jacobian_values >= threshold
+    # jacobian_values = jacobian_values[mask]
+    # jacobian_row_indices = jacobian_row_indices[mask]
+    # jacobian_col_indices = jacobian_col_indices[mask]
+    ## =====================================set the threshold======================
+
+    # coalesce jacobian(there are few elements have repeated index,
+    # it may be caused by bug of computing jacobian's row and col's index)
     coo_indices = torch.stack([jacobian_row_indices, jacobian_col_indices], dim=0)
     jacobian = torch.sparse_coo_tensor(coo_indices, jacobian_values, (width * height, parameters_per_gaussian * N))
     jacobian = jacobian.coalesce()

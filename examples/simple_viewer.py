@@ -224,7 +224,7 @@ if __name__ == "__main__":
         "--scene_grid", type=int, default=1, help="repeat the scene into a grid of NxN"
     )
     parser.add_argument(
-        "--ckpt", type=str, nargs="+", default=None, help="path to the .pt file"
+        "--ckpt", type=str, nargs="+", default=[rf"{os.path.dirname(__file__)}/results/lego/ckpts/ckpt_29999.pt",], help="path to the .pt file"
     )
     parser.add_argument(
         "--port", type=int, default=8080, help="port for the viewer server"

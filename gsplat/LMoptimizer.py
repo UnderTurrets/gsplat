@@ -19,6 +19,7 @@ class LevenbergMarquardt(Optimizer):
                  params: Params,
                  tou: float = 1e-1,
                  epsilon: float = 1e-8,
+                 auto_stop: bool = True,
                  tolX: float = 1e-3,
                  tolOpt: float = 1e-6,
                  tolFun: float = 1e-6,
@@ -26,12 +27,13 @@ class LevenbergMarquardt(Optimizer):
                  strategy: str = '0', ) -> None:
         assert tou > 0, "invalid eps value"
         assert epsilon > 0, "invalid nu value"
+        assert auto_stop in [True, False], "invalid auto_stop value"
         assert tolX > 0, "invalid tolX value"
         assert tolOpt > 0, "invalid tolOpt value"
         assert tolFun > 0, "invalid tolFun value"
         assert strategy in ['0', '1', ], "invalid strategy value"
 
-        defaults = dict(tou=tou, epsilon=epsilon,
+        defaults = dict(tou=tou, epsilon=epsilon,auto_stop=auto_stop,
                         tolX=tolX, tolOpt=tolOpt, tolFun=tolFun,
                         block_size=block_size, strategy=strategy)
         super().__init__(params, defaults)
@@ -78,6 +80,7 @@ class LevenbergMarquardt(Optimizer):
         for group in self.param_groups:
             group.setdefault('tou', self.defaults['tou'])
             group.setdefault('epsilon', self.defaults['epsilon'])
+            group.setdefault('auto_stop', self.defaults['auto_stop'])
             group.setdefault('tolX', self.defaults['tolX'])
             group.setdefault('tolOpt', self.defaults['tolOpt'])
             group.setdefault('tolFun', self.defaults['tolFun'])
@@ -139,9 +142,9 @@ class LevenbergMarquardt(Optimizer):
         col_range (tuple): 要切片的列范围，格式为 (col_start, col_end)。
 
         返回:
-        torch.Tensor: 切片后的dense张量
+        torch.Tensor: 切片后的张量且仍然保持稀疏形式
         """
-        assert A.layout == torch.sparse_coo,A.layout
+        assert A.layout == torch.sparse_coo, A.layout
         # 提取 COO 张量的 indices 和 values
         indices = A._indices()
         values = A._values()
@@ -169,7 +172,7 @@ class LevenbergMarquardt(Optimizer):
         # 创建新的 COO 稀疏张量
         sliced_A = torch.sparse_coo_tensor(new_indices, new_values, size=new_shape, device=A.device)
 
-        return sliced_A.to_dense()
+        return sliced_A
 
     @staticmethod
     def check_J_r(jacobian:Tensor, residual:Tensor):
@@ -184,6 +187,7 @@ class LevenbergMarquardt(Optimizer):
         assert jacobian.size(0) == residual.size(0), \
             "Jacobian's row must correspond to residual's elements."
 
+    # TODO:A_sub and sub_update couldn't be released automatically.
     def compute_update(self, block_size: int, A: Tensor, b: Tensor):
         if block_size <= 0 and A.layout == torch.strided:
             update = torch.linalg.solve(A, b)
@@ -202,7 +206,9 @@ class LevenbergMarquardt(Optimizer):
                     else:
                         end_idx = current_idx + block_size
                     if A.layout == torch.sparse_coo:
-                        A_sub = self.sparse_coo_slice(A, (current_idx, end_idx), (current_idx, end_idx))
+                        A_sub = self.sparse_coo_slice(A,
+                                                      (current_idx, end_idx),
+                                                      (current_idx, end_idx)).to_dense()
                     else:
                         A_sub = A[current_idx:end_idx, current_idx:end_idx]
                     b_sub = b[current_idx:end_idx]
@@ -220,7 +226,7 @@ class LevenbergMarquardt(Optimizer):
         for group in self.param_groups:
             state = self.state[group['params'][0]]
             if 'found' in state:
-                if state['found'] == True:
+                if state['found'] and group['auto_stop']:
                     continue
             with torch.no_grad():
                 jacobian, residual = closure()
@@ -251,8 +257,8 @@ class LevenbergMarquardt(Optimizer):
             update = self.compute_update(group['block_size'], A, gradient)
             self.store_params(group)
             params_length = torch.linalg.vector_norm(state['params_vector']).item()
-            # if torch.linalg.vector_norm(update) < epsilon * (params_length + epsilon):
-            #     state['found'] = True
+            if torch.linalg.vector_norm(update) < epsilon * (params_length + epsilon):
+                state['found'] = True
 
             self.update(group, update)
             with torch.no_grad():
@@ -264,12 +270,12 @@ class LevenbergMarquardt(Optimizer):
             new_gradient = jacobian.t() @ residual
 
             ## other check
-            # if torch.linalg.vector_norm(gradient) < group['tolOpt']:
-            #     state['found'] = True
-            # if torch.linalg.vector_norm(update) < group['tolX'] * max(1.0, params_length):
-            #     state['found'] = True
-            # if abs(new_loss - last_loss) < group['tolFun'] * max(1.0, abs(last_loss)):
-            #     state['found'] = True
+            if torch.linalg.vector_norm(gradient) < group['tolOpt']:
+                state['found'] = True
+            if torch.linalg.vector_norm(update) < group['tolX'] * max(1.0, params_length):
+                state['found'] = True
+            if abs(new_loss - last_loss) < group['tolFun'] * max(1.0, abs(last_loss)):
+                state['found'] = True
 
             varrho = None
             if group['strategy'] == '0':
@@ -301,15 +307,15 @@ class LevenbergMarquardt(Optimizer):
             self.check_J_r(jacobian, residual)
             state = self.state[group['params'][0]]
             if 'found' in state:
-                if state['found']:
+                if state['found'] and group['auto_stop']:
                     if 'gradient' in state: del state['gradient']
-                    if 'last_update' in state is not None: del state['last_update']
+                    if 'last_update' in state: del state['last_update']
                     continue
 
             epsilon = group['epsilon']
             new_gradient = jacobian.t() @ residual
-            # if torch.linalg.vector_norm(new_gradient, ord=numpy.inf) <= epsilon:
-            #     state['found'] = True
+            if torch.linalg.vector_norm(new_gradient, ord=numpy.inf) <= epsilon:
+                state['found'] = True
 
             hessian = jacobian.t() @ jacobian
             # first pass
@@ -333,12 +339,12 @@ class LevenbergMarquardt(Optimizer):
                 params_length = torch.linalg.vector_norm(state['params_vector']).item()
 
                 ## other check
-                # if torch.linalg.vector_norm(last_gradient) < group['tolOpt']:
-                #     state['found'] = True
-                # if torch.linalg.vector_norm(last_update) < group['tolX'] * max(1.0, params_length):
-                #     state['found'] = True
-                # if abs(new_loss - last_loss) < group['tolFun'] * max(1.0, abs(last_loss)):
-                #     state['found'] = True
+                if torch.linalg.vector_norm(last_gradient) < group['tolOpt']:
+                    state['found'] = True
+                if torch.linalg.vector_norm(last_update) < group['tolX'] * max(1.0, params_length):
+                    state['found'] = True
+                if abs(new_loss - last_loss) < group['tolFun'] * max(1.0, abs(last_loss)):
+                    state['found'] = True
 
                 varrho = None
                 if group['strategy'] == '0':

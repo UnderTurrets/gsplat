@@ -503,7 +503,7 @@ class Runner:
                   self.splats["sh0"],
                   self.splats["shN"]
                   ]
-        LMoptimizer = LevenbergMarquardt(params,)
+        LMoptimizer = LevenbergMarquardt(params,block_size=10000)
 
         # Training loop.
         # prof = torch.profiler.profile(
@@ -583,7 +583,7 @@ class Runner:
                 info=info,
             )
 
-            residual = 0.5 * ((colors - pixels)**2).sum(dim=-1, keepdim=True)
+            residual = 0.5 * ((colors - pixels)**2).sum(dim=-1)
             residual = residual.flatten()
 
             ## ========================compare autograd and jacobian===================
@@ -706,7 +706,11 @@ class Runner:
                 assert_never(self.cfg.strategy)
 
             # optimize
-            LMoptimizer.step(Jacobians=[jacobian], residual=residual)
+            for i in range(1600):
+                LMoptimizer.step(Jacobians=[LevenbergMarquardt.sparse_coo_slice(jacobian,
+                                                                                (i*100,(i+1)*100),
+                                                                                (0,jacobian.size(1)))],
+                                 residual=residual[i*100:(i+1)*100])
             for optimizer in self.pose_optimizers:
                 optimizer.step()
                 optimizer.zero_grad(set_to_none=True)
