@@ -812,13 +812,13 @@ def rasterization_jacobian(
     # plt.show()
     ## =====================================draw the distribution==================
 
-    ## =====================================set the threshold======================
+    ## =====================================set threshold to filter======================
     # threshold = 8e-3
     # mask = jacobian_values >= threshold
     # jacobian_values = jacobian_values[mask]
     # jacobian_row_indices = jacobian_row_indices[mask]
     # jacobian_col_indices = jacobian_col_indices[mask]
-    ## =====================================set the threshold======================
+    ## =====================================set threshold to filter======================
 
     # coalesce jacobian(there are few elements have repeated index,
     # it may be caused by bug of computing jacobian's row and col's index)

@@ -187,7 +187,6 @@ class LevenbergMarquardt(Optimizer):
         assert jacobian.size(0) == residual.size(0), \
             "Jacobian's row must correspond to residual's elements."
 
-    # TODO:A_sub and sub_update couldn't be released automatically.
     def compute_update(self, block_size: int, A: Tensor, b: Tensor):
         if block_size <= 0 and A.layout == torch.strided:
             update = torch.linalg.solve(A, b)
@@ -382,12 +381,12 @@ class LevenbergMarquardt(Optimizer):
         return self.state[self.param_groups[-1]['params'][0]]['loss']
 
     def step(self, closure: Optional[Closure] = None,
-             Jacobians: Optional[Iterable[Tensor]] = None, residual: Optional[Tensor] = None) -> float:
+             jacobians: Optional[Iterable[Tensor]] = None, residual: Optional[Tensor] = None) -> float:
         if closure is not None:
             # 使用 closure 参数实现的 step 逻辑
             return self.step_with_closure(closure)
-        elif Jacobians is not None and residual is not None:
+        elif jacobians is not None and residual is not None:
             # 使用 Jacobians 和 residual 参数实现的 step 逻辑
-            return self.step_with_jacobians(Jacobians, residual)
+            return self.step_with_jacobians(jacobians, residual)
         else:
             raise ValueError("Invalid arguments for step method.")

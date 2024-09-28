@@ -1,8 +1,6 @@
 .clangd
 compile_commands.json
 .idea/
-dataset/
-datasets/
 # Visual Studio Code configs.
 .vscode/
 

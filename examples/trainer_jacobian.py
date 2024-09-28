@@ -39,11 +39,11 @@ class Config:
     ckpt: Optional[str] = None
 
     # Path to dataset
-    data_dir: str = rf"{os.path.dirname(__file__)}/datasets/lego_2"
+    data_dir: str = rf"{os.path.dirname(__file__)}/datasets/lego_crop"
     # Downsample factor for the dataset
     data_factor: int = 1  # 4
     # Directory to save results
-    result_dir: str = rf"{os.path.dirname(__file__)}/results/lego_2"
+    result_dir: str = rf"{os.path.dirname(__file__)}/results/lego_crop"
     # Every N images there is a test image
     test_every: int = 8
     # Random crop size for training  (experimental)
@@ -706,11 +706,7 @@ class Runner:
                 assert_never(self.cfg.strategy)
 
             # optimize
-            for i in range(1600):
-                LMoptimizer.step(Jacobians=[LevenbergMarquardt.sparse_coo_slice(jacobian,
-                                                                                (i*100,(i+1)*100),
-                                                                                (0,jacobian.size(1)))],
-                                 residual=residual[i*100:(i+1)*100])
+            LMoptimizer.step(jacobians=[jacobian], residual=residual)
             for optimizer in self.pose_optimizers:
                 optimizer.step()
                 optimizer.zero_grad(set_to_none=True)
