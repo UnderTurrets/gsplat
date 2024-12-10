@@ -222,3 +222,34 @@ def apply_depth_colormap(
     if acc is not None:
         img = img * acc + (1.0 - acc)
     return img
+
+# use pseudo timestamp
+from scipy.spatial.transform import Rotation as R
+def save_to_tum_format(poses, output_file):
+    """
+    Save poses to TUM format for evo evaluation.
+    :param poses: List of 4x4 numpy arrays representing poses
+    :param output_file: File path to save the poses
+    """
+    with open(output_file, 'w') as f:
+        for idx, pose in enumerate(poses):
+            # Extract translation
+            tx, ty, tz = pose[:3, 3]
+            # Extract rotation (convert rotation matrix to quaternion)
+            rotation_matrix = pose[:3, :3]
+            quaternion = R.from_matrix(rotation_matrix.detach().cpu().numpy()).as_quat()  # [qx, qy, qz, qw]
+            qx, qy, qz, qw = quaternion
+            # Write to file: timestamp tx ty tz qx qy qz qw
+            f.write(f"{idx} {tx:.6f} {ty:.6f} {tz:.6f} {qx:.6f} {qy:.6f} {qz:.6f} {qw:.6f}\n")
+
+def save_to_kitti_format(poses, output_file):
+    """
+    Save poses to KITTI format for evo evaluation.
+    :param poses: List of 4x4 numpy arrays representing poses
+    :param output_file: File path to save the poses
+    """
+    with open(output_file, 'w') as f:
+        for pose in poses:
+            # Flatten the rotation and translation parts into a single line
+            kitti_format = pose[:3, :].flatten()  # Extract top 3 rows (r11..r33 and tx, ty, tz)
+            f.write(" ".join(f"{value:.6f}" for value in kitti_format) + "\n")

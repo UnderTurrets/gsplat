@@ -114,7 +114,7 @@ class Parser:
         if len(imdata) == 0:
             raise ValueError("No images found in COLMAP.")
         if not (type_ == 0 or type_ == 1):
-            print("Warning: COLMAP Camera is not PINHOLE. Images have distortion.")
+            print(f"Warning: COLMAP Camera is {cam.camera_type}. Images have distortion.")
 
         w2c_mats = np.stack(w2c_mats, axis=0)
 

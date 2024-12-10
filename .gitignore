@@ -1,6 +1,7 @@
 .clangd
 compile_commands.json
 
+.idea/
 # Visual Studio Code configs.
 .vscode/
 
@@ -125,3 +126,9 @@ data
 results
 
 !examples/benchmarks/compression/results/
+
+examples/datasets
+!examples/datasets/colmap.py
+!examples/datasets/download_dataset.py
+!examples/datasets/normalize.py
+!examples/datasets/traj.py

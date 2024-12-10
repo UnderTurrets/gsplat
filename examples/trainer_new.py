@@ -28,7 +28,7 @@ from torchmetrics.image import PeakSignalNoiseRatio, StructuralSimilarityIndexMe
 from fused_ssim import fused_ssim
 from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
 from typing_extensions import Literal, assert_never
-from utils import AppearanceOptModule, CameraOptModule, knn, rgb_to_sh, set_random_seed
+from utils import AppearanceOptModule, CameraOptModule, knn, rgb_to_sh, set_random_seed, save_to_kitti_format
 from lib_bilagrid import (
     BilateralGrid,
     slice,
@@ -57,7 +57,7 @@ class Config:
     # Path to the Mip-NeRF 360 dataset
     data_dir: str = rf"{os.path.dirname(__file__)}/datasets/lego"
     # Downsample factor for the dataset
-    data_factor: int = 4
+    data_factor: int = 1
     # Directory to save results
     result_dir: str = rf"{os.path.dirname(__file__)}/results/lego"
     # Every N images there is a test image
@@ -130,13 +130,14 @@ class Config:
     scale_reg: float = 0.0
 
     # Enable camera optimization.
-    pose_opt: bool = False
+    pose_opt: bool = True
     # Learning rate for camera optimization
     pose_opt_lr: float = 1e-5
     # Regularization for camera optimization as weight decay
     pose_opt_reg: float = 1e-6
     # Add noise to camera extrinsics. This is only to test the camera pose optimization.
-    pose_noise: float = 0.0
+    # if pose_noise is too big, the number of init gaussian will be little. And performance gets very bad.
+    pose_noise: float = 0.05
 
     # Enable appearance optimization. (experimental)
     app_opt: bool = False
@@ -294,6 +295,9 @@ class Runner:
         os.makedirs(self.stats_dir, exist_ok=True)
         self.render_dir = f"{cfg.result_dir}/renders"
         os.makedirs(self.render_dir, exist_ok=True)
+        if self.cfg.pose_opt:
+            self.poses_dir = f"{cfg.result_dir}/poses"
+            os.makedirs(self.poses_dir, exist_ok=True)
 
         # Tensorboard
         self.writer = SummaryWriter(log_dir=f"{cfg.result_dir}/tb")
@@ -370,7 +374,6 @@ class Runner:
             if world_size > 1:
                 self.pose_adjust = DDP(self.pose_adjust)
 
-        if cfg.pose_noise > 0.0:
             self.pose_perturb = CameraOptModule(len(self.trainset)).to(self.device)
             self.pose_perturb.random_init(cfg.pose_noise)
             if world_size > 1:
@@ -550,6 +553,18 @@ class Runner:
         )
         trainloader_iter = iter(trainloader)
 
+        # get init poses from dataset and pose_perturb
+        if self.cfg.pose_opt:
+            init_poses = []
+            groundtruth_poses = []
+            for data in self.trainset:
+                groundtruth_pose = data["camtoworld"].to(device)
+                init_pose = self.pose_perturb(camtoworlds=groundtruth_pose, embed_ids=torch.tensor(data["image_id"],device=device))
+                init_poses.append(init_pose)
+                groundtruth_poses.append(groundtruth_pose)
+            save_to_kitti_format(init_poses, f"{self.poses_dir}/init_poses.txt")
+            save_to_kitti_format(groundtruth_poses, f"{self.poses_dir}/groundtruth_poses.txt")
+
         # Training loop.
         global_tic = time.time()
         pbar = tqdm.tqdm(range(init_step, max_steps))
@@ -580,10 +595,12 @@ class Runner:
 
             height, width = pixels.shape[1:3]
 
-            if cfg.pose_noise:
-                camtoworlds = self.pose_perturb(camtoworlds, image_ids)
 
             if cfg.pose_opt:
+                # convert R_cw to init R_cw
+                camtoworlds = self.pose_perturb(camtoworlds, image_ids)
+
+                # convert init R_cw to optimized R_cw
                 camtoworlds = self.pose_adjust(camtoworlds, image_ids)
 
             # sh schedule
@@ -634,6 +651,7 @@ class Runner:
                 colors.permute(0, 3, 1, 2), pixels.permute(0, 3, 1, 2), padding="valid"
             )
             loss = l1loss * (1.0 - cfg.ssim_lambda) + ssimloss * cfg.ssim_lambda
+            # loss = 0.5 * ((pixels - colors) ** 2).sum()
             if cfg.depth_loss:
                 # query depths from depth map
                 points = torch.stack(
@@ -675,7 +693,7 @@ class Runner:
             desc = f"loss={loss.item():.3f}| " f"sh degree={sh_degree_to_use}| "
             if cfg.depth_loss:
                 desc += f"depth loss={depthloss.item():.6f}| "
-            if cfg.pose_opt and cfg.pose_noise:
+            if cfg.pose_opt:
                 # monitor the pose error if we inject noise
                 pose_err = F.l1_loss(camtoworlds_gt, camtoworlds)
                 desc += f"pose err={pose_err.item():.6f}| "
@@ -821,6 +839,16 @@ class Runner:
                 self.viewer.state.num_train_rays_per_sec = num_train_rays_per_sec
                 # Update the scene.
                 self.viewer.update(step, num_train_rays_per_step)
+
+        # get optimized poses from dataset and pose_perturb
+        if self.cfg.pose_opt:
+            optimized_poses = []
+            for data in self.trainset:
+                init_pose = self.pose_perturb(camtoworlds=data["camtoworld"].to(device),embed_ids=torch.tensor(data["image_id"],device=device))
+                optimized_pose = self.pose_adjust(camtoworlds=init_pose, embed_ids=torch.tensor(data["image_id"],device=device))
+                optimized_poses.append(optimized_pose)
+            save_to_kitti_format(optimized_poses, f"{self.poses_dir}/optimized_poses.txt")
+
 
     @torch.no_grad()
     def eval(self, step: int, stage: str = "val"):
