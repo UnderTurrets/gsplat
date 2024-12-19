@@ -28,6 +28,8 @@ from torchmetrics.image import PeakSignalNoiseRatio, StructuralSimilarityIndexMe
 from fused_ssim import fused_ssim
 from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
 from typing_extensions import Literal, assert_never
+
+from examples.utils import CameraOptModuleSE3
 from utils import AppearanceOptModule, CameraOptModule, knn, rgb_to_sh, set_random_seed, save_to_kitti_format
 from lib_bilagrid import (
     BilateralGrid,
@@ -137,7 +139,7 @@ class Config:
     pose_opt_reg: float = 1e-6
     # Add noise to camera extrinsics. This is only to test the camera pose optimization.
     # if pose_noise is too big, the number of init gaussian will be little. And performance gets very bad.
-    pose_noise: float = 0.05
+    pose_noise: float = 1e-4
 
     # Enable appearance optimization. (experimental)
     app_opt: bool = False
@@ -362,7 +364,7 @@ class Runner:
 
         self.pose_optimizers = []
         if cfg.pose_opt:
-            self.pose_adjust = CameraOptModule(len(self.trainset)).to(self.device)
+            self.pose_adjust = CameraOptModuleSE3(len(self.trainset)).to(self.device)
             self.pose_adjust.zero_init()
             self.pose_optimizers = [
                 torch.optim.Adam(
@@ -374,7 +376,7 @@ class Runner:
             if world_size > 1:
                 self.pose_adjust = DDP(self.pose_adjust)
 
-            self.pose_perturb = CameraOptModule(len(self.trainset)).to(self.device)
+            self.pose_perturb = CameraOptModuleSE3(len(self.trainset)).to(self.device)
             self.pose_perturb.random_init(cfg.pose_noise)
             if world_size > 1:
                 self.pose_perturb = DDP(self.pose_perturb)
@@ -559,7 +561,9 @@ class Runner:
             groundtruth_poses = []
             for data in self.trainset:
                 groundtruth_pose = data["camtoworld"].to(device)
-                init_pose = self.pose_perturb(camtoworlds=groundtruth_pose, embed_ids=torch.tensor(data["image_id"],device=device))
+                if groundtruth_pose.dim() == 2:
+                    groundtruth_pose = groundtruth_pose.squeeze(0)
+                init_pose = self.pose_perturb(camtoworlds=groundtruth_pose, embed_ids=torch.tensor(data=[data["image_id"]],device=device))
                 init_poses.append(init_pose)
                 groundtruth_poses.append(groundtruth_pose)
             save_to_kitti_format(init_poses, f"{self.poses_dir}/init_poses.txt")
@@ -844,8 +848,11 @@ class Runner:
         if self.cfg.pose_opt:
             optimized_poses = []
             for data in self.trainset:
-                init_pose = self.pose_perturb(camtoworlds=data["camtoworld"].to(device),embed_ids=torch.tensor(data["image_id"],device=device))
-                optimized_pose = self.pose_adjust(camtoworlds=init_pose, embed_ids=torch.tensor(data["image_id"],device=device))
+                groundtruth_pose = data["camtoworld"].to(device)
+                if groundtruth_pose.dim() == 2:
+                    groundtruth_pose = groundtruth_pose.squeeze(0)
+                init_pose = self.pose_perturb(camtoworlds=groundtruth_pose, embed_ids=torch.tensor(data=[data["image_id"]],device=device))
+                optimized_pose = self.pose_adjust(camtoworlds=init_pose, embed_ids=torch.tensor(data=[data["image_id"]],device=device))
                 optimized_poses.append(optimized_pose)
             save_to_kitti_format(optimized_poses, f"{self.poses_dir}/optimized_poses.txt")
 

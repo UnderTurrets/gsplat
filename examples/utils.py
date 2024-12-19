@@ -1,6 +1,7 @@
 import random
 
 import numpy as np
+import pypose as pp
 import torch
 from sklearn.neighbors import NearestNeighbors
 from torch import Tensor
@@ -8,6 +9,36 @@ import torch.nn.functional as F
 import matplotlib.pyplot as plt
 from matplotlib import colormaps
 
+class CameraOptModuleSE3(torch.nn.Module):
+    """Camera pose optimization module."""
+
+    def __init__(self, n: int):
+        super().__init__()
+        self.num_cameras = n
+        self.poses_opt = None
+
+    def zero_init(self):
+        self.poses_opt = pp.Parameter(pp.identity_se3(self.num_cameras).cuda())
+
+    def random_init(self, std: float):
+        self.poses_opt = pp.Parameter(pp.randn_se3(self.num_cameras, sigma=std).cuda())
+
+    def forward(self, camtoworlds: Tensor, embed_ids: Tensor) -> Tensor:
+        """Adjust camera pose based on deltas.
+
+        Args:
+            camtoworlds: (..., 4, 4)
+            embed_ids: (...,)
+
+        Returns:
+            updated camtoworlds: (..., 4, 4)
+        """
+        assert camtoworlds.shape[:-2] == embed_ids.shape
+        batch_shape = camtoworlds.shape[:-2]
+        pose_deltas = self.poses_opt[embed_ids]
+
+        transform = (pose_deltas).Exp().matrix()
+        return torch.matmul(camtoworlds, transform)
 
 class CameraOptModule(torch.nn.Module):
     """Camera pose optimization module."""
@@ -233,6 +264,9 @@ def save_to_tum_format(poses, output_file):
     """
     with open(output_file, 'w') as f:
         for idx, pose in enumerate(poses):
+            assert pose.dim() == 2 or pose.dim() == 3, "Pose must be a 2D or 3D tensor"
+            if pose.dim() == 3:
+                pose=pose.squeeze(0)
             # Extract translation
             tx, ty, tz = pose[:3, 3]
             # Extract rotation (convert rotation matrix to quaternion)
@@ -250,6 +284,9 @@ def save_to_kitti_format(poses, output_file):
     """
     with open(output_file, 'w') as f:
         for pose in poses:
+            assert pose.dim() == 2 or pose.dim() == 3, "Pose must be a 2D or 3D tensor"
+            if pose.dim() == 3:
+                pose=pose.squeeze(0)
             # Flatten the rotation and translation parts into a single line
             kitti_format = pose[:3, :].flatten()  # Extract top 3 rows (r11..r33 and tx, ty, tz)
             f.write(" ".join(f"{value:.6f}" for value in kitti_format) + "\n")
